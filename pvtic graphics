@@ -1,37 +1,37 @@
 --[[
 	=====================================================================
-	  XG GRAPHICS SUITE
-	  Low Graphics  |  Shaders  |  Texture Packs  |  Settings
+	  XG GRAPHICS SUITE  -  ULTRA EDITION
+	  Built for high-end PCs. Client-side visuals only.
 	=====================================================================
-	Client-side visual tweaks only. Nothing here touches gameplay or
-	other players - it only changes how YOUR game looks.
-
 	TABS
-	  Low Graphics : Fullbright, No Fog, No Shadows, No Textures, Smooth
-	                 Plastic, No Particles, No Post-FX, No Clouds, No Water
-	                 Effects, No Terrain Grass, Low Mesh Detail, No
-	                 Reflections, Lowest Quality Level, AFK mode (disable
-	                 3D rendering) + quick presets (Default/Balanced/Potato)
-	  Shaders      : 10 presets + full manual control of Bloom, Color
-	                 Grading, Sun Rays, Depth of Field, Atmosphere, Water,
-	                 Time of Day, Exposure, Reflections, Future lighting
-	  Textures     : 15 texture packs (Wood, Brick, Marble, Luxury, Cyber...)
-	                 that re-skin Floors / Walls / Other parts, mix & match
-	                 materials, or paste your own image asset ID
-	  Settings     : UI key, FPS cap, save/load config, reset, destroy
+	  Dashboard    : live FPS / 1% low / frame-time graph / memory / ping,
+	                 one-click profiles (Ultimate, Cinematic, Balanced,
+	                 Performance), screenshot tools
+	  Low Graphics : Fullbright, No Fog/Shadows/Textures/Particles/Post-FX,
+	                 Smooth Plastic, Low Mesh, No Water Effects ... + presets
+	  Shaders      : 13 presets, bloom, color grading, sun rays, depth of
+	                 field (auto-focus), atmosphere, water, sun angle, light
+	                 tints, day/night cycle
+	  Reflections  : glossy wet floors + REAL-TIME SCENE REFLECTIONS (mirror
+	                 copy of nearby scene under a see-through glossy floor)
+	  Textures     : 19 texture packs, mix & match materials, color variation,
+	                 custom image ID
+	  GPU / Ultra  : max quality level, precise meshes, HD materials, Future
+	                 lighting, shadow softness, every-light shadows, neon
+	                 glow lights, FPS cap
+	  Effects      : motion blur, vignette, cinematic bars, camera FOV,
+	                 ambient particles (dust / fireflies / snow)
+	  Settings     : themes, UI scale, key bind, 3 config slots + autoload
 
-	CONTROLS
-	  RightShift (changeable) = show / hide window
-	  "-" = minimize      "x" = close and restore everything
-
-	Executor features used if present (all optional, script degrades
-	gracefully): gethui, setfpscap, sethiddenproperty, writefile/readfile.
+	RightShift (changeable) = show / hide.   "-" minimize.   "x" close and
+	restore everything the script touched.
 	=====================================================================
 ]]
 
 local env = (type(getgenv) == "function" and getgenv()) or _G
 if env.XG_GFX and type(env.XG_GFX.Destroy) == "function" then
 	pcall(env.XG_GFX.Destroy)
+	task.wait(0.1)
 end
 
 local Players = game:GetService("Players")
@@ -39,10 +39,12 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
 local HttpService = game:GetService("HttpService")
+local StatsService = game:GetService("Stats")
+local StarterGui = game:GetService("StarterGui")
 local MaterialService = game:GetService("MaterialService")
 local CoreGui = game:GetService("CoreGui")
-local Workspace = game:GetService("Workspace")
 
 repeat task.wait() until Players.LocalPlayer
 local LocalPlayer = Players.LocalPlayer
@@ -52,6 +54,7 @@ local HAS = {
 	setfpscap = type(setfpscap) == "function",
 	sethidden = type(sethiddenproperty) == "function",
 	gethidden = type(gethiddenproperty) == "function",
+	clipboard = type(setclipboard) == "function",
 	files = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function",
 }
 
@@ -63,18 +66,22 @@ local function connect(signal, fn)
 	return c
 end
 
+local function rgb(r, g, b) return Color3.fromRGB(r, g, b) end
+
 ------------------------------------------------------------------------
--- SETTINGS / DATA
+-- SETTINGS
 ------------------------------------------------------------------------
 local SHADER_BASE = {
-	tm_on = false, clock = 14, bright = 2.5, exposure = 0, envdiff = 1, envspec = 1, surf_reflect = 0,
+	tm_on = false, clock = 14, cycle_on = false, cycle_speed = 2,
+	bright = 2.5, exposure = 0, envdiff = 1, envspec = 1, sun_lat = 41.7, shift_top = 0, shift_bot = 0,
+	surf_reflect = 0,
 	bloom_on = false, bloom_i = 0.4, bloom_s = 24, bloom_t = 1.2,
 	cc_on = false, cc_bright = 0, cc_contrast = 0, cc_sat = 0, cc_warm = 0,
 	sun_on = false, sun_i = 0.25, sun_s = 0.6,
-	dof_on = false, dof_far = 0.15, dof_focus = 80, dof_radius = 50, dof_near = 0,
+	dof_on = false, dof_auto = false, dof_far = 0.15, dof_focus = 80, dof_radius = 50, dof_near = 0,
 	atmo_on = false, atmo_density = 0.3, atmo_offset = 0.2, atmo_haze = 1, atmo_glare = 0.3,
 	water_on = false, water_transp = 0.9, water_reflect = 0.8, water_wave = 0.15,
-	future = false,
+	vig_on = false, vig_i = 0.3, mblur_on = false, mblur_i = 0.4,
 }
 
 local DEFAULTS = {
@@ -85,15 +92,24 @@ local DEFAULTS = {
 	low_preset = "Default",
 	-- shaders
 	sh_on = false, sh_preset = "Off",
+	-- reflections
+	refl_on = false, refl_style = "Wet Asphalt", refl_gloss = 0.45, refl_dark = 0.55, refl_strength = 0.55,
+	refl_scene = false, refl_range = 250, refl_max = 1500, refl_hz = 30, refl_chars = true,
+	refl_minsize = 2, refl_tol = 1.5,
 	-- textures
-	tex_on = false, tex_pack = "Off",
-	tex_floor = true, tex_wall = true, tex_part = true,
+	tex_on = false, tex_pack = "Off", tex_floor = true, tex_wall = true, tex_part = true,
 	tex_mat_floor = "Original", tex_mat_wall = "Original", tex_mat_part = "Original",
-	tex_usecolors = true, tex_minsize = 2,
+	tex_usecolors = true, tex_minsize = 2, tex_vary = 0.08,
 	tex_custom_on = false, tex_custom_id = "", tex_custom_size = 8,
-	hdmats = false,
-	-- misc
-	ui_key = "RightShift", fpscap_on = false, fpscap = 144,
+	-- gpu
+	future = false, hdmats = false, gpu_maxq = false, gpu_precise = false,
+	gpu_shadow_on = false, gpu_shadow = 0.25, gpu_lightshadows = false,
+	neon_on = false, neon_max = 120, neon_range = 18, neon_bright = 1.5,
+	fpscap_on = false, fpscap = 240,
+	-- effects
+	bars_on = false, bars_h = 0.1, part_mode = "Off", part_density = 1, fov_on = false, fov = 80,
+	-- ui
+	ui_key = "RightShift", theme = "Blue", ui_scale = 1, hide_core = false, cfg_slot = "1", autoload = false,
 }
 for k, v in pairs(SHADER_BASE) do DEFAULTS[k] = v end
 
@@ -107,9 +123,8 @@ local LOW_KEYS = {
 	"fullbright", "nofog", "noshadows", "notextures", "smooth", "noparticles", "nopostfx",
 	"noclouds", "nowater", "noterraindeco", "lowmesh", "noreflect", "lowquality",
 }
-local LOW_SET = {}
+local LOW_SET = { disable3d = true }
 for _, k in ipairs(LOW_KEYS) do LOW_SET[k] = true end
-LOW_SET.disable3d = true
 
 local LOW_PRESETS = {
 	Default = {},
@@ -118,23 +133,35 @@ local LOW_PRESETS = {
 }
 for _, k in ipairs(LOW_KEYS) do LOW_PRESETS.Potato[k] = true end
 
--- Shader presets (merged over SHADER_BASE) -----------------------------
-local SHADER_ORDER = { "Off", "Realistic", "Cinematic", "Vibrant", "Sunset", "Moonlight", "Dreamy", "Noir", "Neon Night", "Ultra" }
+local KEEP = {
+	ui_key = true, theme = true, ui_scale = true, cfg_slot = true, autoload = true,
+	fpscap_on = true, fpscap = true, hide_core = true,
+}
+
+------------------------------------------------------------------------
+-- SHADER PRESETS
+------------------------------------------------------------------------
+local SHADER_ORDER = {
+	"Off", "Realistic", "Cinematic", "Vibrant", "Golden Hour", "Sunset", "Foggy Morning", "Overcast",
+	"Moonlight", "Dreamy", "Noir", "Neon Night", "Ultra RTX",
+}
 local SHADER_PRESETS = {
 	["Realistic"] = {
-		tm_on = true, clock = 14.2, bright = 3, exposure = 0.05, surf_reflect = 0.02,
+		tm_on = true, clock = 14.2, bright = 3, exposure = 0.05, shift_top = 0.1, shift_bot = -0.12, surf_reflect = 0.02,
 		bloom_on = true, bloom_i = 0.25, bloom_s = 20, bloom_t = 1.8,
 		cc_on = true, cc_contrast = 0.08, cc_sat = 0.1, cc_warm = 0.1,
 		sun_on = true, sun_i = 0.15, sun_s = 0.7,
 		atmo_on = true, atmo_density = 0.28, atmo_offset = 0.15, atmo_haze = 1, atmo_glare = 0.2,
+		vig_on = true, vig_i = 0.12,
 	},
 	["Cinematic"] = {
-		tm_on = true, clock = 16.8, bright = 2.6, exposure = -0.05,
+		tm_on = true, clock = 16.8, bright = 2.6, exposure = -0.05, shift_top = 0.35, shift_bot = -0.3,
 		bloom_on = true, bloom_i = 0.5, bloom_s = 32, bloom_t = 1.2,
 		cc_on = true, cc_contrast = 0.22, cc_sat = -0.05, cc_warm = 0.35,
 		sun_on = true, sun_i = 0.3, sun_s = 0.85,
-		dof_on = true, dof_far = 0.18, dof_focus = 90, dof_radius = 60,
+		dof_on = true, dof_auto = true, dof_far = 0.18, dof_radius = 40,
 		atmo_on = true, atmo_density = 0.35, atmo_offset = 0.2, atmo_haze = 1.6, atmo_glare = 0.5,
+		vig_on = true, vig_i = 0.35, mblur_on = true, mblur_i = 0.35,
 	},
 	["Vibrant"] = {
 		tm_on = true, clock = 13, bright = 3,
@@ -143,57 +170,109 @@ local SHADER_PRESETS = {
 		sun_on = true, sun_i = 0.2, sun_s = 0.6,
 		atmo_on = true, atmo_density = 0.22, atmo_offset = 0.2, atmo_haze = 0.5, atmo_glare = 0.1,
 		water_on = true, water_transp = 0.85, water_reflect = 0.9, water_wave = 0.2,
+		vig_on = true, vig_i = 0.1,
+	},
+	["Golden Hour"] = {
+		tm_on = true, clock = 17.2, bright = 3, exposure = 0.1, shift_top = 0.55, shift_bot = -0.2,
+		bloom_on = true, bloom_i = 0.5, bloom_s = 36, bloom_t = 1.1,
+		cc_on = true, cc_contrast = 0.18, cc_sat = 0.3, cc_warm = 0.55,
+		sun_on = true, sun_i = 0.5, sun_s = 0.9,
+		atmo_on = true, atmo_density = 0.38, atmo_offset = 0.28, atmo_haze = 1.8, atmo_glare = 1.2,
+		vig_on = true, vig_i = 0.25,
 	},
 	["Sunset"] = {
-		tm_on = true, clock = 17.9, bright = 2.4,
+		tm_on = true, clock = 17.9, bright = 2.4, shift_top = 0.6, shift_bot = -0.3,
 		bloom_on = true, bloom_i = 0.55, bloom_s = 34, bloom_t = 1.0,
 		cc_on = true, cc_contrast = 0.15, cc_sat = 0.25, cc_warm = 0.65,
 		sun_on = true, sun_i = 0.45, sun_s = 0.9,
 		atmo_on = true, atmo_density = 0.4, atmo_offset = 0.3, atmo_haze = 2.2, atmo_glare = 1.5,
+		vig_on = true, vig_i = 0.2,
+	},
+	["Foggy Morning"] = {
+		tm_on = true, clock = 7.2, bright = 2, exposure = 0.1, shift_top = 0.2,
+		bloom_on = true, bloom_i = 0.3, bloom_s = 30, bloom_t = 1.2,
+		cc_on = true, cc_contrast = -0.05, cc_sat = -0.15, cc_warm = -0.1,
+		sun_on = true, sun_i = 0.3, sun_s = 1,
+		dof_on = true, dof_auto = true, dof_far = 0.15, dof_radius = 50,
+		atmo_on = true, atmo_density = 0.65, atmo_offset = 0.1, atmo_haze = 4, atmo_glare = 0.2,
+		vig_on = true, vig_i = 0.1,
+	},
+	["Overcast"] = {
+		tm_on = true, clock = 12, bright = 1.6,
+		bloom_on = true, bloom_i = 0.15, bloom_s = 20, bloom_t = 2,
+		cc_on = true, cc_contrast = 0.05, cc_sat = -0.3, cc_warm = -0.15,
+		atmo_on = true, atmo_density = 0.5, atmo_offset = 0, atmo_haze = 3, atmo_glare = 0,
+		vig_on = true, vig_i = 0.15,
 	},
 	["Moonlight"] = {
-		tm_on = true, clock = 0, bright = 2, exposure = 0.4,
+		tm_on = true, clock = 0, bright = 2, exposure = 0.4, shift_top = -0.2, shift_bot = -0.4,
 		bloom_on = true, bloom_i = 0.6, bloom_s = 28, bloom_t = 0.9,
 		cc_on = true, cc_contrast = 0.12, cc_sat = -0.08, cc_warm = -0.55,
 		atmo_on = true, atmo_density = 0.3, atmo_offset = 0.2, atmo_haze = 0.3, atmo_glare = 0,
+		vig_on = true, vig_i = 0.3,
 	},
 	["Dreamy"] = {
-		tm_on = true, clock = 15.5, bright = 2.8,
+		tm_on = true, clock = 15.5, bright = 2.8, shift_top = 0.3,
 		bloom_on = true, bloom_i = 1, bloom_s = 48, bloom_t = 0.7,
 		cc_on = true, cc_bright = 0.03, cc_contrast = -0.05, cc_sat = 0.2, cc_warm = 0.2,
 		sun_on = true, sun_i = 0.4, sun_s = 1,
 		dof_on = true, dof_far = 0.25, dof_focus = 60, dof_radius = 40,
 		atmo_on = true, atmo_density = 0.38, atmo_offset = 0.25, atmo_haze = 2, atmo_glare = 0.8,
+		vig_on = true, vig_i = 0.2,
 	},
 	["Noir"] = {
 		tm_on = true, clock = 16, bright = 2.5,
 		bloom_on = true, bloom_i = 0.2, bloom_s = 20, bloom_t = 1.6,
 		cc_on = true, cc_bright = -0.02, cc_contrast = 0.4, cc_sat = -1, cc_warm = 0,
 		atmo_on = true, atmo_density = 0.3, atmo_offset = 0.2, atmo_haze = 1.2, atmo_glare = 0,
+		vig_on = true, vig_i = 0.5,
 	},
 	["Neon Night"] = {
-		tm_on = true, clock = 21, bright = 2, exposure = 0.2, surf_reflect = 0.08,
+		tm_on = true, clock = 21, bright = 2, exposure = 0.2, shift_top = -0.2, shift_bot = -0.35, surf_reflect = 0.08,
 		bloom_on = true, bloom_i = 1.1, bloom_s = 40, bloom_t = 0.8,
 		cc_on = true, cc_contrast = 0.3, cc_sat = 0.55, cc_warm = -0.45,
 		atmo_on = true, atmo_density = 0.33, atmo_offset = 0.2, atmo_haze = 1, atmo_glare = 0,
+		vig_on = true, vig_i = 0.3, mblur_on = true, mblur_i = 0.3,
+		refl_on = true, neon_on = true,
 	},
-	["Ultra"] = {
-		tm_on = true, clock = 14.5, bright = 3, exposure = 0.05, surf_reflect = 0.03,
+	["Ultra RTX"] = {
+		tm_on = true, clock = 14.5, bright = 3, exposure = 0.05, shift_top = 0.25, shift_bot = -0.2, surf_reflect = 0.03,
 		bloom_on = true, bloom_i = 0.3, bloom_s = 24, bloom_t = 1.4,
 		cc_on = true, cc_contrast = 0.18, cc_sat = 0.25, cc_warm = 0.12,
 		sun_on = true, sun_i = 0.28, sun_s = 0.8,
-		dof_on = true, dof_far = 0.12, dof_focus = 120, dof_radius = 80,
+		dof_on = true, dof_auto = true, dof_far = 0.12, dof_radius = 60,
 		atmo_on = true, atmo_density = 0.32, atmo_offset = 0.18, atmo_haze = 1.4, atmo_glare = 0.5,
 		water_on = true, water_transp = 0.85, water_reflect = 0.9, water_wave = 0.18,
-		future = true,
+		vig_on = true, vig_i = 0.22, mblur_on = true, mblur_i = 0.35,
+		future = true, hdmats = true, gpu_maxq = true, gpu_precise = true, gpu_lightshadows = true,
+		gpu_shadow_on = true, gpu_shadow = 0.2, refl_on = true, refl_scene = true, neon_on = true,
 	},
 }
 
--- Texture packs: { Material, Color, [Reflectance] } per category ---------
-local function rgb(r, g, b) return Color3.fromRGB(r, g, b) end
+------------------------------------------------------------------------
+-- REFLECTION SURFACE STYLES
+------------------------------------------------------------------------
+local STYLE_ORDER = {
+	"Wet Asphalt", "Wet Tiles", "Polished Marble", "Black Glass", "Mirror", "Chrome", "Ice", "Water Sheet", "Keep Material",
+}
+local Styles = {
+	["Wet Asphalt"]     = { mat = "SmoothPlastic", gloss = 0.45, dark = 0.55, strength = 0.5 },
+	["Wet Tiles"]       = { mat = "CeramicTiles", gloss = 0.5, dark = 0.3, strength = 0.5 },
+	["Polished Marble"] = { mat = "Marble", gloss = 0.55, dark = 0.1, strength = 0.5 },
+	["Black Glass"]     = { mat = "SmoothPlastic", color = rgb(10, 10, 14), gloss = 0.8, dark = 0, strength = 0.7 },
+	["Mirror"]          = { mat = "SmoothPlastic", color = rgb(190, 196, 204), gloss = 1, dark = 0, strength = 0.85 },
+	["Chrome"]          = { mat = "Metal", color = rgb(170, 176, 184), gloss = 0.9, dark = 0, strength = 0.75 },
+	["Ice"]             = { mat = "Ice", gloss = 0.4, dark = 0, strength = 0.5 },
+	["Water Sheet"]     = { mat = "Glass", color = rgb(34, 78, 96), gloss = 0.6, dark = 0, strength = 0.7 },
+	["Keep Material"]   = { gloss = 0.5, dark = 0.3, strength = 0.5 },
+}
+
+------------------------------------------------------------------------
+-- TEXTURE PACKS: { Material, Color, [Reflectance] } per category
+------------------------------------------------------------------------
 local PACK_ORDER = {
-	"Off", "Wood", "Brick", "Marble", "Stone", "Cobblestone", "Industrial", "Luxury",
-	"Urban", "Nature", "Desert", "Ice", "Cyber", "Volcanic", "Cozy", "Modern",
+	"Off", "Wood", "Brick", "Marble", "Stone", "Cobblestone", "Industrial", "Luxury", "Urban", "Nature",
+	"Desert", "Ice", "Cyber", "Volcanic", "Cozy", "Modern", "Candy", "Space", "Gothic", "Tropical",
 }
 local Packs = {
 	["Wood"]        = { Floor = { "WoodPlanks", rgb(176, 128, 84) },  Wall = { "Wood", rgb(150, 104, 66) },        Part = { "Wood", rgb(128, 88, 54) } },
@@ -211,6 +290,10 @@ local Packs = {
 	["Volcanic"]    = { Floor = { "Basalt", rgb(38, 34, 34) },         Wall = { "Slate", rgb(58, 46, 44) },         Part = { "CrackedLava", rgb(255, 110, 30) } },
 	["Cozy"]        = { Floor = { "Carpet", rgb(150, 64, 60) },        Wall = { "Plaster", rgb(214, 200, 176) },    Part = { "Leather", rgb(112, 72, 52) } },
 	["Modern"]      = { Floor = { "CeramicTiles", rgb(226, 230, 234), 0.1 }, Wall = { "Concrete", rgb(204, 204, 208) }, Part = { "SmoothPlastic", rgb(240, 240, 244) } },
+	["Candy"]       = { Floor = { "SmoothPlastic", rgb(255, 182, 213) }, Wall = { "SmoothPlastic", rgb(170, 215, 255) }, Part = { "SmoothPlastic", rgb(255, 236, 160) } },
+	["Space"]       = { Floor = { "DiamondPlate", rgb(205, 210, 220), 0.15 }, Wall = { "Metal", rgb(225, 228, 235), 0.1 }, Part = { "SmoothPlastic", rgb(60, 64, 80) } },
+	["Gothic"]      = { Floor = { "Slate", rgb(46, 44, 52) },          Wall = { "Cobblestone", rgb(76, 70, 78) },   Part = { "Basalt", rgb(34, 32, 38) } },
+	["Tropical"]    = { Floor = { "Sand", rgb(238, 214, 160) },        Wall = { "WoodPlanks", rgb(170, 120, 70) },  Part = { "Wood", rgb(140, 96, 58) } },
 }
 
 local MATERIAL_CHOICES = {
@@ -222,23 +305,77 @@ local MATERIAL_CHOICES = {
 }
 
 ------------------------------------------------------------------------
--- CORE: reversible property store
+-- THEMES + PROFILES
 ------------------------------------------------------------------------
+local THEME_ORDER = { "Blue", "Purple", "Emerald", "Crimson", "Amber", "Pink", "Cyan" }
+local THEMES = {
+	Blue = rgb(86, 148, 255), Purple = rgb(150, 105, 255), Emerald = rgb(52, 202, 142),
+	Crimson = rgb(236, 82, 102), Amber = rgb(255, 172, 60), Pink = rgb(255, 110, 184), Cyan = rgb(40, 202, 232),
+}
+
+local PROFILES = {
+	["Ultimate"] = {
+		shader = "Ultra RTX", style = "Wet Asphalt",
+		set = { part_mode = "Dust", part_density = 0.8 },
+	},
+	["Cinematic"] = {
+		shader = "Cinematic", style = "Polished Marble",
+		set = {
+			bars_on = true, bars_h = 0.1, refl_on = true, refl_scene = false, hdmats = true, gpu_maxq = true,
+			future = true, part_mode = "Dust", part_density = 0.6,
+		},
+	},
+	["Balanced"] = {
+		shader = "Vibrant", style = "Wet Tiles",
+		set = { refl_on = true, refl_scene = false, gpu_maxq = true, hdmats = true },
+	},
+	["Performance"] = { low = "Potato", set = {} },
+}
+
+------------------------------------------------------------------------
+-- HELPERS
+------------------------------------------------------------------------
+local function new(class, props, parent)
+	local o = Instance.new(class)
+	for k, v in pairs(props) do o[k] = v end
+	if parent then o.Parent = parent end
+	return o
+end
+local function round(o, r)
+	return new("UICorner", { CornerRadius = UDim.new(0, r) }, o)
+end
+local function padding(o, l, t, r, b)
+	return new("UIPadding", {
+		PaddingLeft = UDim.new(0, l), PaddingTop = UDim.new(0, t),
+		PaddingRight = UDim.new(0, r), PaddingBottom = UDim.new(0, b),
+	}, o)
+end
 local function cond(c, v)
 	if c then return v end
 	return nil
 end
+local function mountGui(g)
+	if type(syn) == "table" and syn.protect_gui then pcall(syn.protect_gui, g) end
+	local ok = false
+	if HAS.gethui then ok = pcall(function() g.Parent = gethui() end) end
+	if not ok or not g.Parent then ok = pcall(function() g.Parent = CoreGui end) end
+	if not ok or not g.Parent then g.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+end
 
--- Orig[inst][prop] = value the game had before we touched it.
-local Orig = setmetatable({}, { __mode = "k" })
-local Removed = {}                                  -- SurfaceAppearances we detached: inst -> parent
-local CustomTex = setmetatable({}, { __mode = "k" }) -- part -> { face -> Texture }
-local Effects = {}                                  -- our own PostEffects / Atmosphere
-local Flags = { render = false, quality = false, future = false, deco = false, hd = false }
-local QualityOrig, TechOrig, DecoOrig, HdOrig
+------------------------------------------------------------------------
+-- CORE STATE: reversible property store
+------------------------------------------------------------------------
+local Core = { kick = false }
+local Orig = setmetatable({}, { __mode = "k" })         -- inst -> { prop = original value }
+local Own = setmetatable({}, { __mode = "k" })          -- instances created by this script
+local Removed = {}                                      -- detached SurfaceAppearances: inst -> parent
+local CustomTex = setmetatable({}, { __mode = "k" })    -- part -> { face -> Texture }
+local GlossySet = {}                                    -- floors currently made glossy
+local Effects = {}                                      -- our PostEffects / Atmosphere
+local Flags = { render = false, quality = nil, future = false, deco = false, hd = false, mesh = false, core = false, fov = false }
+local Saved = {}                                        -- original engine values
 
--- want == nil  -> restore the original value (if we changed it)
--- want ~= nil  -> force this value
+-- want == nil -> restore the original (if we changed it); otherwise force the value
 local function put(inst, prop, want)
 	local o = Orig[inst]
 	if want == nil then
@@ -277,508 +414,1214 @@ local function normalizeId(s)
 end
 
 ------------------------------------------------------------------------
--- CORE: world scan (parts, textures, particles ...)
+-- CORE: world scan (parts, textures, particles, lights ...)
 ------------------------------------------------------------------------
-local Plan, CustomCats = {}, {}
-local planActive, customActive = false, false
-local CustomId = ""
-local customCount = 0
-local ModelCache = setmetatable({}, { __mode = "k" })
-local FACES = Enum.NormalId:GetEnumItems()
-local PERF = Enum.RenderFidelity.Performance
-local SMOOTH = Enum.Material.SmoothPlastic
-local M_NEON, M_GLASS, M_FF = Enum.Material.Neon, Enum.Material.Glass, Enum.Material.ForceField
+do
+	local Plan, CustomCats = {}, {}
+	local planActive, customActive = false, false
+	local CustomId = ""
+	local customCount = 0
+	local ModelCache = setmetatable({}, { __mode = "k" })
+	local FACES = Enum.NormalId:GetEnumItems()
+	local PERF, PRECISE = Enum.RenderFidelity.Performance, Enum.RenderFidelity.Precise
+	local SMOOTH = Enum.Material.SmoothPlastic
+	local M_NEON, M_GLASS, M_FF = Enum.Material.Neon, Enum.Material.Glass, Enum.Material.ForceField
+	local jobId, CHUNK = 0, 400
+	local refreshToken = 0
+	local Queue, qHead, qTail = {}, 1, 0
 
-local function buildPlan()
-	Plan, CustomCats = {}, {}
-	planActive, customActive = false, false
-	CustomId = normalizeId(S.tex_custom_id)
-	local pack = Packs[S.tex_pack]
-	for _, cat in ipairs({ "Floor", "Wall", "Part" }) do
-		local lc = cat:lower()
-		if S["tex_" .. lc] then
-			if S.tex_on then
-				local entry = pack and pack[cat]
-				Plan[cat] = {
-					mat = getMat(S["tex_mat_" .. lc]),
-					color = (entry and S.tex_usecolors) and entry[2] or nil,
-					refl = entry and entry[3] or nil,
-				}
-				planActive = true
-			end
-			if S.tex_custom_on and CustomId ~= "" then
-				CustomCats[cat] = true
-				customActive = true
-			end
-		end
-	end
-end
-
-local function nextModel(inst)
-	local p = inst.Parent
-	while p and p ~= Workspace do
-		if p:IsA("Model") then return p end
-		p = p.Parent
-	end
-	return nil
-end
-
--- true if the instance lives inside a character / NPC (has a Humanoid)
-local function inCharacter(inst)
-	local m = nextModel(inst)
-	while m do
-		local c = ModelCache[m]
-		if c == nil then
-			c = m:FindFirstChildOfClass("Humanoid") ~= nil
-			ModelCache[m] = c
-		end
-		if c then return true end
-		m = nextModel(m)
-	end
-	return false
-end
-
--- Floor = thin horizontal slab, Wall = thin vertical slab, Part = anything else
-local function classify(p)
-	local s, cf = p.Size, p.CFrame
-	local x, y, z = s.X, s.Y, s.Z
-	local thin, axis
-	if x <= y and x <= z then
-		thin, axis = x, cf.RightVector
-	elseif y <= x and y <= z then
-		thin, axis = y, cf.UpVector
-	else
-		thin, axis = z, cf.LookVector
-	end
-	local big = math.max(x, y, z)
-	local mid = x + y + z - thin - big
-	if thin <= mid * 0.6 and big >= 3 then
-		if math.abs(axis.Y) > 0.7 then return "Floor", big end
-		return "Wall", big
-	end
-	return "Part", big
-end
-
-local function syncCustom(p, want, cat)
-	local list = CustomTex[p]
-	if want then
-		if not list then
-			if customCount >= 3000 then return end
-			list = {}
-			CustomTex[p] = list
-			customCount = customCount + 1
-		end
-		local faces = (cat == "Floor") and { Enum.NormalId.Top } or FACES
-		for _, face in ipairs(faces) do
-			local t = list[face]
-			if not t or not t.Parent then
-				t = Instance.new("Texture")
-				t.Name = "XG_Tex"
-				t.Face = face
-				t.Parent = p
-				list[face] = t
-			end
-			if t.Texture ~= CustomId then t.Texture = CustomId end
-			local tile = S.tex_custom_size
-			if t.StudsPerTileU ~= tile then t.StudsPerTileU = tile end
-			if t.StudsPerTileV ~= tile then t.StudsPerTileV = tile end
-		end
-	elseif list then
-		for _, t in pairs(list) do
-			pcall(function() t:Destroy() end)
-		end
-		CustomTex[p] = nil
-		customCount = math.max(0, customCount - 1)
-	end
-end
-
-local function processPart(p)
-	local transparent = p.Transparency > 0.3
-	local cat, plan, custom
-
-	if (planActive or customActive) and not transparent and not inCharacter(p) then
-		local c, big = classify(p)
-		if c ~= "Part" or big >= S.tex_minsize then
-			-- never re-skin glowing / glass parts
-			local om = (Orig[p] and Orig[p].Material) or p.Material
-			if om ~= M_NEON and om ~= M_GLASS and om ~= M_FF then
-				cat = c
-				plan = Plan[c]
-				custom = CustomCats[c]
+	local function buildPlan()
+		Plan, CustomCats = {}, {}
+		planActive, customActive = false, false
+		CustomId = normalizeId(S.tex_custom_id)
+		local pack = Packs[S.tex_pack]
+		for _, cat in ipairs({ "Floor", "Wall", "Part" }) do
+			local lc = cat:lower()
+			if S["tex_" .. lc] then
+				if S.tex_on then
+					local entry = pack and pack[cat]
+					Plan[cat] = {
+						mat = getMat(S["tex_mat_" .. lc]),
+						color = (entry and S.tex_usecolors) and entry[2] or nil,
+						refl = entry and entry[3] or nil,
+					}
+					planActive = true
+				end
+				if S.tex_custom_on and CustomId ~= "" then
+					CustomCats[cat] = true
+					customActive = true
+				end
 			end
 		end
 	end
 
-	-- Material / Color / Reflectance
-	local mat, col, refl
-	if plan then
-		mat, col, refl = plan.mat, plan.color, plan.refl
-	end
-	if not mat and S.smooth then mat = SMOOTH end
-	if S.noreflect then
-		refl = 0
-	elseif not refl and S.sh_on and S.surf_reflect > 0 and p.Transparency < 0.5 then
-		refl = S.surf_reflect
-	end
-
-	put(p, "Material", mat)
-	put(p, "Color", col)
-	put(p, "Reflectance", refl)
-	put(p, "CastShadow", cond(S.noshadows, false))
-
-	if p:IsA("MeshPart") then
-		put(p, "TextureID", cond(S.notextures, ""))
-		pcall(put, p, "RenderFidelity", cond(S.lowmesh, PERF))
-	end
-
-	if custom or CustomTex[p] then
-		syncCustom(p, custom and true or false, cat)
-	end
-end
-
-local function processInstance(inst)
-	if inst:IsA("BasePart") then
-		if inst:IsA("Terrain") then return end
-		processPart(inst)
-	elseif inst:IsA("Decal") then -- Texture inherits Decal
-		if inst.Name ~= "XG_Tex" then
-			put(inst, "Transparency", cond(S.notextures, 1))
+	local function nextModel(inst)
+		local p = inst.Parent
+		while p and p ~= Workspace do
+			if p:IsA("Model") then return p end
+			p = p.Parent
 		end
-	elseif inst:IsA("SurfaceAppearance") then
-		if S.notextures then
-			if inst.Parent then
+		return nil
+	end
+
+	-- true if the instance belongs to a character / NPC (a model with a Humanoid)
+	local function inCharacter(inst)
+		local m = nextModel(inst)
+		while m do
+			local c = ModelCache[m]
+			if c == nil then
+				c = m:FindFirstChildOfClass("Humanoid") ~= nil
+				ModelCache[m] = c
+			end
+			if c then return true end
+			m = nextModel(m)
+		end
+		return false
+	end
+
+	-- Floor = thin horizontal slab, Wall = thin vertical slab, Part = everything else
+	local function classify(p)
+		local s, cf = p.Size, p.CFrame
+		local x, y, z = s.X, s.Y, s.Z
+		local thin, axis
+		if x <= y and x <= z then
+			thin, axis = x, cf.RightVector
+		elseif y <= x and y <= z then
+			thin, axis = y, cf.UpVector
+		else
+			thin, axis = z, cf.LookVector
+		end
+		local big = math.max(x, y, z)
+		local mid = x + y + z - thin - big
+		if thin <= mid * 0.6 and big >= 3 then
+			if math.abs(axis.Y) > 0.7 then return "Floor", big end
+			return "Wall", big
+		end
+		return "Part", big
+	end
+
+	local function vary(c, p)
+		local v = S.tex_vary
+		if v <= 0 or not p.Anchored then return c end
+		local pos = p.Position
+		local h = (math.sin(pos.X * 12.9898 + pos.Z * 78.233 + pos.Y * 37.719) * 43758.5453) % 1
+		local m = 1 + (h - 0.5) * 2 * v
+		return Color3.new(math.clamp(c.R * m, 0, 1), math.clamp(c.G * m, 0, 1), math.clamp(c.B * m, 0, 1))
+	end
+
+	local function syncCustom(p, want, cat)
+		local list = CustomTex[p]
+		if want then
+			if not list then
+				if customCount >= 3000 then return end
+				list = {}
+				CustomTex[p] = list
+				customCount = customCount + 1
+			end
+			local faces = (cat == "Floor") and { Enum.NormalId.Top } or FACES
+			for _, face in ipairs(faces) do
+				local t = list[face]
+				if not t or not t.Parent then
+					t = Instance.new("Texture")
+					t.Name = "XG_Tex"
+					t.Face = face
+					Own[t] = true
+					t.Parent = p
+					list[face] = t
+				end
+				if t.Texture ~= CustomId then t.Texture = CustomId end
+				local tile = S.tex_custom_size
+				if t.StudsPerTileU ~= tile then t.StudsPerTileU = tile end
+				if t.StudsPerTileV ~= tile then t.StudsPerTileV = tile end
+			end
+		elseif list then
+			for _, t in pairs(list) do
+				pcall(function() t:Destroy() end)
+			end
+			CustomTex[p] = nil
+			customCount = math.max(0, customCount - 1)
+		end
+	end
+
+	local function processPart(p)
+		if Own[p] then return end
+
+		-- glossy floors (decided by the reflection scanner)
+		local glossy = GlossySet[p]
+		local gMat, gCol, gRefl, gTr
+		if glossy then gMat, gCol, gRefl, gTr = Core.floorLook(p) end
+		put(p, "Transparency", gTr)
+		put(p, "CastShadow", cond(S.noshadows or (glossy and S.refl_scene), false))
+		if glossy then
+			put(p, "Material", gMat)
+			put(p, "Color", gCol)
+			put(p, "Reflectance", gRefl)
+			if CustomTex[p] then syncCustom(p, false) end
+			return
+		end
+
+		local transparent = p.Transparency > 0.3
+		local cat, plan, custom
+		if (planActive or customActive) and not transparent and not inCharacter(p) then
+			local c, big = classify(p)
+			if c ~= "Part" or big >= S.tex_minsize then
+				-- never re-skin glowing / glass parts
+				local om = (Orig[p] and Orig[p].Material) or p.Material
+				if om ~= M_NEON and om ~= M_GLASS and om ~= M_FF then
+					cat = c
+					plan = Plan[c]
+					custom = CustomCats[c]
+				end
+			end
+		end
+
+		local mat, col, refl
+		if plan then
+			mat, col, refl = plan.mat, plan.color, plan.refl
+			if col then col = vary(col, p) end
+		end
+		if not mat and S.smooth then mat = SMOOTH end
+		if S.noreflect then
+			refl = 0
+		elseif not refl and S.sh_on and S.surf_reflect > 0 and p.Transparency < 0.5 then
+			refl = S.surf_reflect
+		end
+
+		put(p, "Material", mat)
+		put(p, "Color", col)
+		put(p, "Reflectance", refl)
+
+		if p:IsA("MeshPart") then
+			put(p, "TextureID", cond(S.notextures, ""))
+			local fid
+			if S.lowmesh then fid = PERF elseif S.gpu_precise then fid = PRECISE end
+			pcall(put, p, "RenderFidelity", fid)
+		end
+
+		if custom or CustomTex[p] then
+			syncCustom(p, custom and true or false, cat)
+		end
+	end
+
+	local function processInstance(inst)
+		if inst:IsA("BasePart") then
+			if inst:IsA("Terrain") then return end
+			processPart(inst)
+		elseif inst:IsA("Decal") then -- Texture inherits Decal
+			if not Own[inst] then
+				put(inst, "Transparency", cond(S.notextures, 1))
+			end
+		elseif inst:IsA("SurfaceAppearance") then
+			if S.notextures and inst.Parent then
 				Removed[inst] = inst.Parent
 				inst.Parent = nil
 			end
-		end
-	elseif inst:IsA("PostEffect") then
-		if inst.Name:sub(1, 3) ~= "XG_" then
-			put(inst, "Enabled", cond(S.nopostfx, false))
-		end
-	elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam")
-		or inst:IsA("Smoke") or inst:IsA("Fire") or inst:IsA("Sparkles") then
-		put(inst, "Enabled", cond(S.noparticles, false))
-	elseif inst:IsA("Explosion") then
-		put(inst, "Visible", cond(S.noparticles, false))
-	elseif inst:IsA("Light") then
-		put(inst, "Shadows", cond(S.noshadows, false))
-	end
-end
-
-local jobId = 0
-local CHUNK = 400
-
-local function refreshAll()
-	jobId = jobId + 1
-	local my = jobId
-	buildPlan()
-	ModelCache = setmetatable({}, { __mode = "k" })
-	customCount = 0
-	for _ in pairs(CustomTex) do customCount = customCount + 1 end
-
-	-- bring back detached SurfaceAppearances when "No Textures" is off
-	if not S.notextures then
-		for inst, parent in pairs(Removed) do
-			Removed[inst] = nil
-			pcall(function() if parent and parent.Parent then inst.Parent = parent end end)
+		elseif inst:IsA("PostEffect") then
+			if not Own[inst] then
+				put(inst, "Enabled", cond(S.nopostfx, false))
+			end
+		elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam")
+			or inst:IsA("Smoke") or inst:IsA("Fire") or inst:IsA("Sparkles") then
+			if not Own[inst] then
+				put(inst, "Enabled", cond(S.noparticles, false))
+			end
+		elseif inst:IsA("Explosion") then
+			put(inst, "Visible", cond(S.noparticles, false))
+		elseif inst:IsA("Light") then
+			if not Own[inst] then
+				local want
+				if S.noshadows then want = false elseif S.gpu_lightshadows then want = true end
+				put(inst, "Shadows", want)
+			end
 		end
 	end
 
-	local list = Workspace:GetDescendants()
-	local extra = Lighting:GetDescendants()
-	for i = 1, #extra do list[#list + 1] = extra[i] end
+	local function refreshAll()
+		jobId = jobId + 1
+		local my = jobId
+		buildPlan()
+		ModelCache = setmetatable({}, { __mode = "k" })
+		customCount = 0
+		for _ in pairs(CustomTex) do customCount = customCount + 1 end
 
-	local n = 0
-	for i = 1, #list do
-		if my ~= jobId or Dead then return end
-		local inst = list[i]
-		if inst.Parent then pcall(processInstance, inst) end
-		n = n + 1
-		if n >= CHUNK then
-			n = 0
-			task.wait()
+		-- bring back detached SurfaceAppearances when "No Textures" is off
+		if not S.notextures then
+			for inst, parent in pairs(Removed) do
+				Removed[inst] = nil
+				pcall(function() if parent and parent.Parent then inst.Parent = parent end end)
+			end
+		end
+
+		local list = Workspace:GetDescendants()
+		local extra = Lighting:GetDescendants()
+		for i = 1, #extra do list[#list + 1] = extra[i] end
+
+		local n = 0
+		for i = 1, #list do
+			if my ~= jobId or Dead then return end
+			local inst = list[i]
+			if inst.Parent then pcall(processInstance, inst) end
+			n = n + 1
+			if n >= CHUNK then
+				n = 0
+				task.wait()
+			end
 		end
 	end
-end
 
-local refreshToken = 0
-local function scheduleRefresh(delay)
-	refreshToken = refreshToken + 1
-	local t = refreshToken
-	task.delay(delay or 0.15, function()
-		if t == refreshToken and not Dead then refreshAll() end
-	end)
-end
+	function Core.scheduleRefresh(delay)
+		refreshToken = refreshToken + 1
+		local t = refreshToken
+		task.delay(delay or 0.15, function()
+			if t == refreshToken and not Dead then refreshAll() end
+		end)
+	end
 
--- queue for instances that appear later (streaming, spawned effects ...)
-local Queue, qHead, qTail = {}, 1, 0
-local function needsWatch()
-	return S.noshadows or S.notextures or S.smooth or S.noparticles or S.nopostfx
-		or S.lowmesh or S.noreflect or S.tex_on or S.tex_custom_on
-		or (S.sh_on and S.surf_reflect > 0)
-end
-local function enqueue(inst)
-	if needsWatch() then
-		qTail = qTail + 1
-		Queue[qTail] = inst
+	local function needsWatch()
+		return S.noshadows or S.notextures or S.smooth or S.noparticles or S.nopostfx
+			or S.lowmesh or S.noreflect or S.tex_on or S.tex_custom_on or S.gpu_precise
+			or S.gpu_lightshadows or (S.sh_on and S.surf_reflect > 0)
+	end
+
+	function Core.enqueue(inst)
+		if needsWatch() then
+			qTail = qTail + 1
+			Queue[qTail] = inst
+		end
+	end
+
+	function Core.drainQueue(budget)
+		while qHead <= qTail and budget > 0 do
+			local inst = Queue[qHead]
+			Queue[qHead] = nil
+			qHead = qHead + 1
+			if inst and inst.Parent then pcall(processInstance, inst) end
+			budget = budget - 1
+		end
+		if qHead > qTail then qHead, qTail = 1, 0 end
+	end
+
+	Core.processInstance = processInstance
+	Core.inCharacter = inCharacter
+	Core.classify = classify
+	Core.refreshAll = refreshAll
+	Core.restoreCustomTex = function()
+		for _, list in pairs(CustomTex) do
+			for _, t in pairs(list) do pcall(function() t:Destroy() end) end
+		end
 	end
 end
 
 ------------------------------------------------------------------------
 -- CORE: global state (lighting, post-fx, atmosphere, terrain, engine)
 ------------------------------------------------------------------------
-local LIGHT_PROPS = {
-	"ClockTime", "Brightness", "GlobalShadows", "Ambient", "OutdoorAmbient", "FogEnd", "FogStart",
-	"ExposureCompensation", "EnvironmentDiffuseScale", "EnvironmentSpecularScale",
-}
-local WATER_PROPS = { "WaterTransparency", "WaterReflectance", "WaterWaveSize", "WaterWaveSpeed" }
-local ATMO_PROPS = { "Density", "Offset", "Haze", "Glare", "Color", "Decay" }
+do
+	local LIGHT_PROPS = {
+		"ClockTime", "Brightness", "GlobalShadows", "Ambient", "OutdoorAmbient", "FogEnd", "FogStart",
+		"ExposureCompensation", "EnvironmentDiffuseScale", "EnvironmentSpecularScale",
+		"GeographicLatitude", "ColorShift_Top", "ColorShift_Bottom", "ShadowSoftness",
+	}
+	local WATER_PROPS = { "WaterTransparency", "WaterReflectance", "WaterWaveSize", "WaterWaveSpeed" }
+	local ATMO_PROPS = { "Density", "Offset", "Haze", "Glare", "Color", "Decay" }
+	local AF = { cur = 80, target = 80, t = 0, params = RaycastParams.new() }
+	local MB = { cur = 0, prev = nil }
 
-local function tintFromWarmth(w)
-	w = math.clamp(w, -1, 1)
-	local white = Color3.new(1, 1, 1)
-	if w >= 0 then return white:Lerp(Color3.fromRGB(255, 205, 150), w) end
-	return white:Lerp(Color3.fromRGB(150, 195, 255), -w)
-end
-
-local function atmoColor(w)
-	w = math.clamp(w, -1, 1)
-	local base = Color3.fromRGB(198, 202, 210)
-	if w >= 0 then return base:Lerp(Color3.fromRGB(255, 172, 104), w) end
-	return base:Lerp(Color3.fromRGB(120, 165, 235), -w)
-end
-
-local function ensureEffect(class, name)
-	local e = Effects[name]
-	if e and e.Parent == Lighting then return e end
-	if e then pcall(function() e:Destroy() end) end
-	e = Instance.new(class)
-	e.Name = name
-	e.Enabled = false
-	e.Parent = Lighting
-	Effects[name] = e
-	return e
-end
-
-local function setProps(o, t)
-	for k, v in pairs(t) do
-		if o[k] ~= v then o[k] = v end
-	end
-end
-
-local function effectOff(name)
-	local e = Effects[name]
-	if e and e.Enabled then e.Enabled = false end
-end
-
-local function applyLighting()
-	local d = {}
-	if S.sh_on then
-		if S.tm_on then d.ClockTime = S.clock end
-		d.Brightness = S.bright
-		d.ExposureCompensation = S.exposure
-		d.EnvironmentDiffuseScale = S.envdiff
-		d.EnvironmentSpecularScale = S.envspec
-	end
-	if S.fullbright then
-		d.Brightness = 2
-		d.ClockTime = 14
-		d.GlobalShadows = false
-		d.Ambient = Color3.new(1, 1, 1)
-		d.OutdoorAmbient = Color3.new(1, 1, 1)
-	end
-	if S.noshadows then d.GlobalShadows = false end
-	if S.nofog then
-		d.FogStart = 0
-		d.FogEnd = 9e9
-	end
-	if S.noreflect then d.EnvironmentSpecularScale = 0 end
-
-	for _, prop in ipairs(LIGHT_PROPS) do
-		pcall(put, Lighting, prop, d[prop])
+	local function tintFromWarmth(w)
+		w = math.clamp(w, -1, 1)
+		local white = Color3.new(1, 1, 1)
+		if w >= 0 then return white:Lerp(Color3.fromRGB(255, 205, 150), w) end
+		return white:Lerp(Color3.fromRGB(150, 195, 255), -w)
 	end
 
-	-- experimental Future lighting
-	if Flags.future ~= S.future then
-		Flags.future = S.future
-		if HAS.sethidden then
-			if S.future then
-				if TechOrig == nil and HAS.gethidden then
-					local ok, v = pcall(gethiddenproperty, Lighting, "Technology")
-					if ok then TechOrig = v end
+	local function atmoColor(w)
+		w = math.clamp(w, -1, 1)
+		local base = Color3.fromRGB(198, 202, 210)
+		if w >= 0 then return base:Lerp(Color3.fromRGB(255, 172, 104), w) end
+		return base:Lerp(Color3.fromRGB(120, 165, 235), -w)
+	end
+
+	local function shiftColor(w)
+		w = math.clamp(w, -1, 1) * 0.55
+		local black = Color3.new(0, 0, 0)
+		if w >= 0 then return black:Lerp(Color3.fromRGB(255, 190, 120), w) end
+		return black:Lerp(Color3.fromRGB(110, 150, 255), -w)
+	end
+
+	local function ensureEffect(class, name)
+		local e = Effects[name]
+		if e and e.Parent == Lighting then return e end
+		if e then pcall(function() e:Destroy() end) end
+		e = Instance.new(class)
+		e.Name = name
+		e.Enabled = false
+		Own[e] = true
+		e.Parent = Lighting
+		Effects[name] = e
+		return e
+	end
+
+	local function setProps(o, t)
+		for k, v in pairs(t) do
+			if o[k] ~= v then o[k] = v end
+		end
+	end
+
+	local function effectOff(name)
+		local e = Effects[name]
+		if e and e.Enabled then e.Enabled = false end
+	end
+
+	function Core.applyLighting()
+		local d = {}
+		if S.sh_on then
+			if S.tm_on then
+				d.ClockTime = S.clock
+				d.GeographicLatitude = S.sun_lat
+			end
+			d.Brightness = S.bright
+			d.ExposureCompensation = S.exposure
+			d.EnvironmentDiffuseScale = S.envdiff
+			d.EnvironmentSpecularScale = S.envspec
+			if S.shift_top ~= 0 then d.ColorShift_Top = shiftColor(S.shift_top) end
+			if S.shift_bot ~= 0 then d.ColorShift_Bottom = shiftColor(S.shift_bot) end
+		end
+		if S.gpu_shadow_on then d.ShadowSoftness = S.gpu_shadow end
+		if S.fullbright then
+			d.Brightness = 2
+			d.ClockTime = 14
+			d.GlobalShadows = false
+			d.Ambient = Color3.new(1, 1, 1)
+			d.OutdoorAmbient = Color3.new(1, 1, 1)
+		end
+		if S.noshadows then d.GlobalShadows = false end
+		if S.nofog then
+			d.FogStart = 0
+			d.FogEnd = 9e9
+		end
+		if S.noreflect then d.EnvironmentSpecularScale = 0 end
+
+		for _, prop in ipairs(LIGHT_PROPS) do
+			pcall(put, Lighting, prop, d[prop])
+		end
+
+		-- experimental Future lighting
+		if Flags.future ~= S.future then
+			Flags.future = S.future
+			if HAS.sethidden then
+				if S.future then
+					if Saved.tech == nil and HAS.gethidden then
+						local ok, v = pcall(gethiddenproperty, Lighting, "Technology")
+						if ok then Saved.tech = v end
+					end
+					pcall(sethiddenproperty, Lighting, "Technology", Enum.Technology.Future)
+				elseif Saved.tech ~= nil then
+					pcall(sethiddenproperty, Lighting, "Technology", Saved.tech)
 				end
-				pcall(sethiddenproperty, Lighting, "Technology", Enum.Technology.Future)
-			elseif TechOrig ~= nil then
-				pcall(sethiddenproperty, Lighting, "Technology", TechOrig)
 			end
 		end
 	end
-end
 
-local function applyEffects()
-	local on = S.sh_on
+	function Core.applyEffects()
+		local on = S.sh_on
 
-	if on and S.bloom_on then
-		setProps(ensureEffect("BloomEffect", "XG_Bloom"), {
-			Enabled = true, Intensity = S.bloom_i, Size = S.bloom_s, Threshold = S.bloom_t,
-		})
-	else
-		effectOff("XG_Bloom")
-	end
+		if on and S.bloom_on then
+			setProps(ensureEffect("BloomEffect", "XG_Bloom"), {
+				Enabled = true, Intensity = S.bloom_i, Size = S.bloom_s, Threshold = S.bloom_t,
+			})
+		else
+			effectOff("XG_Bloom")
+		end
 
-	if on and S.cc_on then
-		setProps(ensureEffect("ColorCorrectionEffect", "XG_ColorCorrection"), {
-			Enabled = true, Brightness = S.cc_bright, Contrast = S.cc_contrast,
-			Saturation = S.cc_sat, TintColor = tintFromWarmth(S.cc_warm),
-		})
-	else
-		effectOff("XG_ColorCorrection")
-	end
+		if on and S.cc_on then
+			setProps(ensureEffect("ColorCorrectionEffect", "XG_ColorCorrection"), {
+				Enabled = true, Brightness = S.cc_bright, Contrast = S.cc_contrast,
+				Saturation = S.cc_sat, TintColor = tintFromWarmth(S.cc_warm),
+			})
+		else
+			effectOff("XG_ColorCorrection")
+		end
 
-	if on and S.sun_on then
-		setProps(ensureEffect("SunRaysEffect", "XG_SunRays"), {
-			Enabled = true, Intensity = S.sun_i, Spread = S.sun_s,
-		})
-	else
-		effectOff("XG_SunRays")
-	end
+		if on and S.sun_on then
+			setProps(ensureEffect("SunRaysEffect", "XG_SunRays"), {
+				Enabled = true, Intensity = S.sun_i, Spread = S.sun_s,
+			})
+		else
+			effectOff("XG_SunRays")
+		end
 
-	if on and S.dof_on then
-		setProps(ensureEffect("DepthOfFieldEffect", "XG_DepthOfField"), {
-			Enabled = true, FarIntensity = S.dof_far, FocusDistance = S.dof_focus,
-			InFocusRadius = S.dof_radius, NearIntensity = S.dof_near,
-		})
-	else
-		effectOff("XG_DepthOfField")
-	end
-end
-
-local function applyAtmosphere()
-	local want = S.sh_on and S.atmo_on
-	local ga
-	for _, c in ipairs(Lighting:GetChildren()) do
-		if c:IsA("Atmosphere") and c.Name ~= "XG_Atmosphere" then
-			ga = c
-			break
+		if on and S.dof_on then
+			setProps(ensureEffect("DepthOfFieldEffect", "XG_DepthOfField"), {
+				Enabled = true, FarIntensity = S.dof_far,
+				FocusDistance = S.dof_auto and AF.cur or S.dof_focus,
+				InFocusRadius = S.dof_radius, NearIntensity = S.dof_near,
+			})
+		else
+			effectOff("XG_DepthOfField")
 		end
 	end
 
-	local target = ga
-	if want and not ga then
-		local a = Effects.XG_Atmosphere
-		if not a or a.Parent ~= Lighting then
-			if a then pcall(function() a:Destroy() end) end
-			a = Instance.new("Atmosphere")
-			a.Name = "XG_Atmosphere"
-			a.Parent = Lighting
-			Effects.XG_Atmosphere = a
+	function Core.applyAtmosphere()
+		local want = S.sh_on and S.atmo_on
+		local ga
+		for _, c in ipairs(Lighting:GetChildren()) do
+			if c:IsA("Atmosphere") and not Own[c] then
+				ga = c
+				break
+			end
 		end
-		target = a
-	elseif not want and Effects.XG_Atmosphere then
-		pcall(function() Effects.XG_Atmosphere:Destroy() end)
-		Effects.XG_Atmosphere = nil
-	end
-	if not target then return end
 
-	local d = {}
-	if want then
-		local col = atmoColor(S.cc_warm)
-		d.Density, d.Offset, d.Haze, d.Glare = S.atmo_density, S.atmo_offset, S.atmo_haze, S.atmo_glare
-		d.Color = col
-		d.Decay = col:Lerp(Color3.new(0, 0, 0), 0.55)
-	end
-	if S.nofog then
-		d.Density = 0
-		d.Haze = 0
-	end
-	for _, p in ipairs(ATMO_PROPS) do
-		pcall(put, target, p, d[p])
-	end
-end
+		local target = ga
+		if want and not ga then
+			local a = Effects.XG_Atmosphere
+			if not a or a.Parent ~= Lighting then
+				if a then pcall(function() a:Destroy() end) end
+				a = Instance.new("Atmosphere")
+				a.Name = "XG_Atmosphere"
+				Own[a] = true
+				a.Parent = Lighting
+				Effects.XG_Atmosphere = a
+			end
+			target = a
+		elseif not want and Effects.XG_Atmosphere then
+			pcall(function() Effects.XG_Atmosphere:Destroy() end)
+			Effects.XG_Atmosphere = nil
+		end
+		if not target then return end
 
-local function applyTerrain()
-	local t = Workspace:FindFirstChildOfClass("Terrain")
-	if not t then return end
-
-	local d = {}
-	if S.sh_on and S.water_on then
-		d.WaterTransparency = S.water_transp
-		d.WaterReflectance = S.water_reflect
-		d.WaterWaveSize = S.water_wave
-	end
-	if S.nowater then
-		d.WaterWaveSize = 0
-		d.WaterWaveSpeed = 0
-		d.WaterReflectance = 0
-	end
-	for _, p in ipairs(WATER_PROPS) do
-		pcall(put, t, p, d[p])
+		local d = {}
+		if want then
+			local col = atmoColor(S.cc_warm)
+			d.Density, d.Offset, d.Haze, d.Glare = S.atmo_density, S.atmo_offset, S.atmo_haze, S.atmo_glare
+			d.Color = col
+			d.Decay = col:Lerp(Color3.new(0, 0, 0), 0.55)
+		end
+		if S.nofog then
+			d.Density = 0
+			d.Haze = 0
+		end
+		for _, p in ipairs(ATMO_PROPS) do
+			pcall(put, target, p, d[p])
+		end
 	end
 
-	local clouds = t:FindFirstChildOfClass("Clouds")
-	if clouds then pcall(put, clouds, "Enabled", cond(S.noclouds, false)) end
+	function Core.applyTerrain()
+		local t = Workspace:FindFirstChildOfClass("Terrain")
+		if not t then return end
 
-	if Flags.deco ~= S.noterraindeco then
-		Flags.deco = S.noterraindeco
-		if HAS.sethidden then
-			if S.noterraindeco then
-				if DecoOrig == nil and HAS.gethidden then
-					local ok, v = pcall(gethiddenproperty, t, "Decoration")
-					if ok and v ~= nil then DecoOrig = v else DecoOrig = true end
+		local d = {}
+		if S.sh_on and S.water_on then
+			d.WaterTransparency = S.water_transp
+			d.WaterReflectance = S.water_reflect
+			d.WaterWaveSize = S.water_wave
+		end
+		if S.nowater then
+			d.WaterWaveSize = 0
+			d.WaterWaveSpeed = 0
+			d.WaterReflectance = 0
+		end
+		for _, p in ipairs(WATER_PROPS) do
+			pcall(put, t, p, d[p])
+		end
+
+		local clouds = t:FindFirstChildOfClass("Clouds")
+		if clouds then pcall(put, clouds, "Enabled", cond(S.noclouds, false)) end
+
+		if Flags.deco ~= S.noterraindeco then
+			Flags.deco = S.noterraindeco
+			if HAS.sethidden then
+				if S.noterraindeco then
+					if Saved.deco == nil and HAS.gethidden then
+						local ok, v = pcall(gethiddenproperty, t, "Decoration")
+						if ok and v ~= nil then Saved.deco = v else Saved.deco = true end
+					end
+					pcall(sethiddenproperty, t, "Decoration", false)
+				else
+					pcall(sethiddenproperty, t, "Decoration", Saved.deco == nil and true or Saved.deco)
 				end
-				pcall(sethiddenproperty, t, "Decoration", false)
-			else
-				pcall(sethiddenproperty, t, "Decoration", DecoOrig == nil and true or DecoOrig)
 			end
 		end
 	end
-end
 
-local function applyEngine()
-	if Flags.render ~= S.disable3d then
-		Flags.render = S.disable3d
-		pcall(function() RunService:Set3dRenderingEnabled(not S.disable3d) end)
+	function Core.applyFps()
+		if not HAS.setfpscap then return end
+		local v = 60
+		if S.fpscap_on then
+			v = (S.fpscap >= 1000) and 0 or S.fpscap
+		end
+		pcall(setfpscap, v)
 	end
 
-	if Flags.quality ~= S.lowquality then
-		Flags.quality = S.lowquality
-		if S.lowquality then
-			if QualityOrig == nil then
-				pcall(function() QualityOrig = settings().Rendering.QualityLevel end)
+	function Core.applyEngine()
+		if Flags.render ~= S.disable3d then
+			Flags.render = S.disable3d
+			pcall(function() RunService:Set3dRenderingEnabled(not S.disable3d) end)
+		end
+
+		local want = (S.lowquality and "low") or (S.gpu_maxq and "max") or false
+		if Flags.quality ~= want then
+			Flags.quality = want
+			if want then
+				if Saved.quality == nil then
+					pcall(function() Saved.quality = settings().Rendering.QualityLevel end)
+				end
+				pcall(function()
+					settings().Rendering.QualityLevel = (want == "low") and Enum.QualityLevel.Level01 or Enum.QualityLevel.Level21
+				end)
+			elseif Saved.quality ~= nil then
+				pcall(function() settings().Rendering.QualityLevel = Saved.quality end)
 			end
-			pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
-		elseif QualityOrig ~= nil then
-			pcall(function() settings().Rendering.QualityLevel = QualityOrig end)
+		end
+
+		if Flags.mesh ~= S.gpu_precise then
+			Flags.mesh = S.gpu_precise
+			if S.gpu_precise then
+				if Saved.mesh == nil then
+					pcall(function() Saved.mesh = settings().Rendering.MeshPartDetailLevel end)
+				end
+				pcall(function() settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Level04 end)
+			elseif Saved.mesh ~= nil then
+				pcall(function() settings().Rendering.MeshPartDetailLevel = Saved.mesh end)
+			end
+		end
+
+		if Flags.hd ~= S.hdmats then
+			Flags.hd = S.hdmats
+			if Saved.hd == nil then
+				pcall(function() Saved.hd = MaterialService.Use2022Materials end)
+			end
+			local ok = pcall(function() MaterialService.Use2022Materials = S.hdmats end)
+			if not ok and HAS.sethidden then
+				pcall(sethiddenproperty, MaterialService, "Use2022Materials", S.hdmats)
+			end
+		end
+
+		if Flags.core ~= S.hide_core then
+			Flags.core = S.hide_core
+			pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, not S.hide_core) end)
 		end
 	end
 
-	if Flags.hd ~= S.hdmats then
-		Flags.hd = S.hdmats
-		if HdOrig == nil then
-			pcall(function() HdOrig = MaterialService.Use2022Materials end)
-		end
-		local ok = pcall(function() MaterialService.Use2022Materials = S.hdmats end)
-		if not ok and HAS.sethidden then
-			pcall(sethiddenproperty, MaterialService, "Use2022Materials", S.hdmats)
-		end
+	------------------------------------------------------------------
+	-- per-frame steps (day cycle, FOV, motion blur, auto focus)
+	------------------------------------------------------------------
+	function Core.cycleStep(dt)
+		if not (S.cycle_on and S.sh_on and S.tm_on) or S.fullbright then return end
+		S.clock = (S.clock + dt * S.cycle_speed / 60) % 24
+		pcall(put, Lighting, "ClockTime", S.clock)
 	end
-end
 
-local function applyGlobal()
-	pcall(applyLighting)
-	pcall(applyEffects)
-	pcall(applyAtmosphere)
-	pcall(applyTerrain)
-	pcall(applyEngine)
-end
+	function Core.cameraStep(dt)
+		local cam = Workspace.CurrentCamera
+		if not cam then return end
 
-local function fullApply()
-	pcall(applyGlobal)
-	scheduleRefresh(0.05)
+		-- FOV
+		if S.fov_on then
+			if not Flags.fov then
+				Flags.fov = true
+				Saved.fov = cam.FieldOfView
+			end
+			if cam.FieldOfView ~= S.fov then cam.FieldOfView = S.fov end
+		elseif Flags.fov then
+			Flags.fov = false
+			if Saved.fov then cam.FieldOfView = Saved.fov end
+		end
+
+		local look = cam.CFrame.LookVector
+
+		-- motion blur: blur strength follows how fast the camera is turning
+		if S.mblur_on then
+			local prev = MB.prev or look
+			local ang = math.acos(math.clamp(look:Dot(prev), -1, 1))
+			local speed = ang / math.max(dt, 1 / 240)
+			local target = math.clamp((speed - 1) * 5 * S.mblur_i, 0, 22 * S.mblur_i)
+			MB.cur = MB.cur + (target - MB.cur) * math.clamp(dt * 14, 0, 1)
+			local e = ensureEffect("BlurEffect", "XG_MotionBlur")
+			if MB.cur > 0.4 then
+				if e.Size ~= MB.cur then e.Size = MB.cur end
+				if not e.Enabled then e.Enabled = true end
+			elseif e.Enabled then
+				e.Enabled = false
+			end
+		elseif MB.cur ~= 0 or Effects.XG_MotionBlur then
+			MB.cur = 0
+			effectOff("XG_MotionBlur")
+		end
+		MB.prev = look
+
+		-- depth-of-field auto focus
+		if S.sh_on and S.dof_on and S.dof_auto then
+			AF.t = AF.t + dt
+			if AF.t >= 0.07 then
+				AF.t = 0
+				local res = Workspace:Raycast(cam.CFrame.Position, look * 900, AF.params)
+				AF.target = res and res.Distance or 900
+			end
+			AF.cur = AF.cur + (AF.target - AF.cur) * math.clamp(dt * 7, 0, 1)
+			local e = Effects.XG_DepthOfField
+			if e and e.Parent and e.Enabled then e.FocusDistance = AF.cur end
+		end
+
+		if Core.particleFollow then Core.particleFollow(cam) end
+	end
+
+	function Core.destroyEffects()
+		for _, e in pairs(Effects) do pcall(function() e:Destroy() end) end
+		Effects = {}
+	end
 end
 
 ------------------------------------------------------------------------
--- UI HELPERS / CHANGE ROUTING
+-- CORE: screen overlays (vignette + cinematic bars)
+------------------------------------------------------------------------
+do
+	local ov
+	local lastVig
+
+	local function ensureOverlay()
+		if ov and ov.gui.Parent then return ov end
+		local g = new("ScreenGui", {
+			Name = tostring(math.random(1000000, 9000000)), ResetOnSpawn = false, IgnoreGuiInset = true,
+			ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 900,
+		})
+		mountGui(g)
+		local black = Color3.new(0, 0, 0)
+		local function band(size, pos, anchor, rot)
+			local f = new("Frame", {
+				Size = size, Position = pos, AnchorPoint = anchor, BackgroundColor3 = black,
+				BorderSizePixel = 0, Visible = false,
+			}, g)
+			local gr = new("UIGradient", { Rotation = rot }, f)
+			return { frame = f, grad = gr }
+		end
+		ov = {
+			gui = g,
+			vig = {
+				band(UDim2.new(1, 0, 0.26, 0), UDim2.new(0, 0, 0, 0), Vector2.new(0, 0), 90),
+				band(UDim2.new(1, 0, 0.26, 0), UDim2.new(0, 0, 1, 0), Vector2.new(0, 1), 270),
+				band(UDim2.new(0.2, 0, 1, 0), UDim2.new(0, 0, 0, 0), Vector2.new(0, 0), 0),
+				band(UDim2.new(0.2, 0, 1, 0), UDim2.new(1, 0, 0, 0), Vector2.new(1, 0), 180),
+			},
+			barTop = new("Frame", {
+				Size = UDim2.new(1, 0, 0.1, 0), BackgroundColor3 = black, BorderSizePixel = 0, Visible = false,
+			}, g),
+			barBot = new("Frame", {
+				Size = UDim2.new(1, 0, 0.1, 0), AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0),
+				BackgroundColor3 = black, BorderSizePixel = 0, Visible = false,
+			}, g),
+		}
+		lastVig = nil
+		return ov
+	end
+
+	function Core.applyOverlays()
+		if not (S.vig_on or S.bars_on) and not ov then return end
+		local o = ensureOverlay()
+
+		for _, b in ipairs(o.vig) do
+			if b.frame.Visible ~= S.vig_on then b.frame.Visible = S.vig_on end
+		end
+		if S.vig_on and lastVig ~= S.vig_i then
+			lastVig = S.vig_i
+			local seq = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1 - math.clamp(S.vig_i, 0, 1)),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			for _, b in ipairs(o.vig) do b.grad.Transparency = seq end
+		end
+
+		o.barTop.Visible = S.bars_on
+		o.barBot.Visible = S.bars_on
+		local h = UDim2.new(1, 0, S.bars_h, 0)
+		if o.barTop.Size ~= h then
+			o.barTop.Size = h
+			o.barBot.Size = h
+		end
+	end
+
+	function Core.destroyOverlay()
+		if ov then pcall(function() ov.gui:Destroy() end) end
+		ov = nil
+	end
+end
+
+------------------------------------------------------------------------
+-- CORE: ambient particles (dust / fireflies / snow) following the camera
+------------------------------------------------------------------------
+do
+	local part, emitter, curMode
+	local MODES = {
+		Dust = { size = Vector3.new(60, 28, 60), offset = Vector3.new(0, 0, 0), rate = 25 },
+		Fireflies = { size = Vector3.new(60, 8, 60), offset = Vector3.new(0, -2, 0), rate = 5 },
+		Snow = { size = Vector3.new(90, 1, 90), offset = Vector3.new(0, 45, 0), rate = 90 },
+	}
+	local SOFT = "rbxasset://textures/particles/smoke_main.dds"
+	local SPARK = "rbxasset://textures/particles/sparkles_main.dds"
+
+	local function configure(e, mode)
+		if mode == "Dust" then
+			e.Texture = SOFT
+			e.Lifetime = NumberRange.new(6, 10)
+			e.Speed = NumberRange.new(0.2, 0.8)
+			e.SpreadAngle = Vector2.new(180, 180)
+			e.Size = NumberSequence.new(0.18)
+			e.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0.78),
+				NumberSequenceKeypoint.new(0.8, 0.78), NumberSequenceKeypoint.new(1, 1),
+			})
+			e.Color = ColorSequence.new(Color3.fromRGB(255, 244, 222))
+			e.LightEmission = 0.5
+			e.RotSpeed = NumberRange.new(-20, 20)
+		elseif mode == "Fireflies" then
+			e.Texture = SPARK
+			e.Lifetime = NumberRange.new(5, 9)
+			e.Speed = NumberRange.new(0.5, 1.5)
+			e.SpreadAngle = Vector2.new(180, 180)
+			e.Size = NumberSequence.new(0.35)
+			e.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.15, 0.1),
+				NumberSequenceKeypoint.new(0.5, 0.6), NumberSequenceKeypoint.new(0.85, 0.1),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			e.Color = ColorSequence.new(Color3.fromRGB(190, 255, 110))
+			e.LightEmission = 1
+		else -- Snow
+			e.Texture = SOFT
+			e.Lifetime = NumberRange.new(9, 12)
+			e.Speed = NumberRange.new(2, 5)
+			e.EmissionDirection = Enum.NormalId.Bottom
+			e.SpreadAngle = Vector2.new(15, 15)
+			e.Acceleration = Vector3.new(0.8, -3, 0.3)
+			e.Size = NumberSequence.new(0.22)
+			e.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.1, 0.15),
+				NumberSequenceKeypoint.new(0.9, 0.15), NumberSequenceKeypoint.new(1, 1),
+			})
+			e.Color = ColorSequence.new(Color3.new(1, 1, 1))
+			e.LightEmission = 0.3
+		end
+	end
+
+	local function destroyAll()
+		if part then pcall(function() part:Destroy() end) end
+		part, emitter, curMode = nil, nil, nil
+	end
+
+	function Core.applyParticles()
+		local mode = S.part_mode
+		local m = MODES[mode]
+		if not m then
+			if part then destroyAll() end
+			return
+		end
+		if mode ~= curMode or not part or not part.Parent then
+			destroyAll()
+			part = Instance.new("Part")
+			part.Name = "XG"
+			part.Transparency = 1
+			part.Anchored = true
+			part.CanCollide = false
+			part.CanQuery = false
+			part.CanTouch = false
+			part.CastShadow = false
+			part.Size = m.size
+			Own[part] = true
+			emitter = Instance.new("ParticleEmitter")
+			Own[emitter] = true
+			configure(emitter, mode)
+			emitter.Parent = part
+			part.Parent = Workspace
+			curMode = mode
+		end
+		local rate = m.rate * S.part_density
+		if emitter.Rate ~= rate then emitter.Rate = rate end
+	end
+
+	function Core.particleFollow(cam)
+		if part and part.Parent and curMode then
+			part.CFrame = CFrame.new(cam.CFrame.Position + MODES[curMode].offset)
+		end
+	end
+
+	Core.destroyParticles = destroyAll
+end
+
+function Core.applyGlobal()
+	pcall(Core.applyLighting)
+	pcall(Core.applyEffects)
+	pcall(Core.applyAtmosphere)
+	pcall(Core.applyTerrain)
+	pcall(Core.applyEngine)
+	pcall(Core.applyOverlays)
+	pcall(Core.applyParticles)
+end
+
+------------------------------------------------------------------------
+-- CORE: reflections (glossy floors + mirrored scene) and neon glow lights
+------------------------------------------------------------------------
+-- How the scene reflection works:
+--   1. A ray under your character finds the floor height (the "mirror plane").
+--   2. Flat floor parts at that height become glossy and (optionally)
+--      semi-transparent.
+--   3. Nearby parts are copied and mirrored through the plane, so you see
+--      an upside-down copy of the scene "inside" the glossy floor.
+--   4. Moving parts (characters, unanchored objects) are re-mirrored each
+--      frame with BulkMoveTo; static parts are refreshed every scan.
+do
+	local folder
+	local clones = {}       -- source part -> mirrored clone
+	local staticCF = {}     -- source part -> last source CFrame we mirrored
+	local dynSrc, dynDst = {}, {}
+	local glow = {}         -- neon part -> PointLight
+	local plane
+	local accum = 0
+	local errCount = 0
+	local EXCLUDE = Enum.RaycastFilterType.Exclude
+	local ovp = OverlapParams.new()
+	local rp = RaycastParams.new()
+	ovp.FilterType = EXCLUDE
+	rp.FilterType = EXCLUDE
+	local M_NEON = Enum.Material.Neon
+
+	local function ensureFolder()
+		if folder and folder.Parent then return folder end
+		folder = Instance.new("Folder")
+		folder.Name = tostring(math.random(100000, 999999))
+		folder.Parent = Workspace
+		return folder
+	end
+
+	-- reflect a CFrame through the horizontal plane y = plane.
+	-- R' = M * R * F  (M = flip Y, F = flip local X) keeps the matrix a proper rotation.
+	local function mirrorCF(cf)
+		local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = cf:GetComponents()
+		return CFrame.new(x, 2 * plane - y, z, -r00, r01, r02, r10, -r11, -r12, -r20, r21, r22)
+	end
+
+	local function floorTopY(p)
+		local cf = p.CFrame
+		if cf.UpVector.Y < 0.95 then return nil end
+		local s = p.Size
+		if s.X < 6 or s.Z < 6 then return nil end
+		if s.Y > math.min(s.X, s.Z) * 0.6 then return nil end
+		local tr = (Orig[p] and Orig[p].Transparency) or p.Transparency
+		if tr > 0.6 then return nil end
+		return cf.Position.Y + s.Y * 0.5
+	end
+
+	local function makeClone(src)
+		local c
+		if src.ClassName == "Part" and #src:GetChildren() == 0 then
+			c = Instance.new("Part")
+			pcall(function() c.Shape = src.Shape end)
+			c.Size = src.Size
+			c.Color = src.Color
+			c.Material = src.Material
+			c.Transparency = src.Transparency
+		else
+			local ok, cl = pcall(function() return src:Clone() end)
+			if not ok or not cl then return nil end
+			for _, ch in ipairs(cl:GetChildren()) do
+				if not (ch:IsA("DataModelMesh") or ch:IsA("SurfaceAppearance")) then
+					ch:Destroy()
+				end
+			end
+			c = cl
+		end
+		c.Name = "XG"
+		c.Anchored = true
+		c.CanCollide = false
+		c.CanQuery = false
+		c.CanTouch = false
+		c.CastShadow = false
+		c.Reflectance = 0
+		Own[c] = true
+		c.CFrame = mirrorCF(src.CFrame)
+		return c
+	end
+
+	local function dropClone(src)
+		local c = clones[src]
+		if c then pcall(function() c:Destroy() end) end
+		clones[src] = nil
+		staticCF[src] = nil
+	end
+
+	local function clearClones()
+		for src in pairs(clones) do dropClone(src) end
+		dynSrc, dynDst = {}, {}
+	end
+
+	local function clearGlow()
+		for p, l in pairs(glow) do
+			pcall(function() l:Destroy() end)
+			glow[p] = nil
+		end
+	end
+
+	local function clearGloss()
+		for p in pairs(GlossySet) do
+			GlossySet[p] = nil
+			if p.Parent then pcall(Core.processInstance, p) end
+		end
+	end
+
+	-- indices of the n nearest entries (distances in dist[1..count])
+	local function nearest(dist, count, n)
+		local idx = {}
+		for i = 1, count do idx[i] = i end
+		table.sort(idx, function(a, b) return dist[a] < dist[b] end)
+		local out = {}
+		for i = 1, math.min(n, count) do out[i] = idx[i] end
+		return out
+	end
+
+	local function rebuildDyn()
+		local ds, dd = {}, {}
+		for src, c in pairs(clones) do
+			if src.Anchored then
+				local cf = src.CFrame
+				if staticCF[src] ~= cf then
+					staticCF[src] = cf
+					c.CFrame = mirrorCF(cf)
+				end
+			else
+				ds[#ds + 1] = src
+				dd[#dd + 1] = c
+			end
+		end
+		dynSrc, dynDst = ds, dd
+	end
+
+	local function scanOnce()
+		local wantGloss = S.refl_on
+		local wantScene = S.refl_on and S.refl_scene
+		local wantNeon = S.neon_on
+
+		if not wantGloss and next(GlossySet) then clearGloss() end
+		if not wantScene and next(clones) then clearClones() end
+		if not wantNeon and next(glow) then clearGlow() end
+		if not (wantGloss or wantNeon) then return end
+
+		ensureFolder()
+		Core.folder = folder
+		local cam = Workspace.CurrentCamera
+		local char = LocalPlayer.Character
+		local root = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
+		local center = (cam and cam.CFrame.Position) or (root and root.Position)
+		local rayOrigin = (root and root.Position) or center
+		if not center then return end
+
+		-- 1. find the mirror plane (floor height under the player)
+		if wantGloss then
+			rp.FilterDescendantsInstances = char and { folder, char } or { folder }
+			local hit = Workspace:Raycast(rayOrigin, Vector3.new(0, -500, 0), rp)
+			if hit and hit.Normal.Y > 0.9 then
+				local y = hit.Position.Y
+				if not plane or math.abs(y - plane) > 0.15 then
+					plane = y
+					staticCF = {}
+				end
+			end
+		end
+
+		-- 2. query parts around the camera
+		ovp.FilterDescendantsInstances = { folder }
+		ovp.MaxParts = math.min(9000, S.refl_max * 2 + 600)
+		local parts = Workspace:GetPartBoundsInRadius(center, S.refl_range, ovp)
+		local cx, cy, cz = center.X, center.Y, center.Z
+
+		-- 3. glossy floors
+		local newGloss = {}
+		if wantGloss and plane then
+			local cands, cd, n = {}, {}, 0
+			for i = 1, #parts do
+				local p = parts[i]
+				if not Own[p] then
+					local top = floorTopY(p)
+					if top and math.abs(top - plane) <= S.refl_tol and not Core.inCharacter(p) then
+						local pos = p.Position
+						local dx, dz = pos.X - cx, pos.Z - cz
+						n = n + 1
+						cands[n] = p
+						cd[n] = dx * dx + dz * dz
+					end
+				end
+			end
+			if n > 400 then
+				for _, k in ipairs(nearest(cd, n, 400)) do newGloss[cands[k]] = true end
+			else
+				for i = 1, n do newGloss[cands[i]] = true end
+			end
+		end
+		for p in pairs(GlossySet) do
+			if not newGloss[p] then
+				GlossySet[p] = nil
+				if p.Parent then pcall(Core.processInstance, p) end
+			end
+		end
+		for p in pairs(newGloss) do
+			if not GlossySet[p] then
+				GlossySet[p] = true
+				pcall(Core.processInstance, p)
+			end
+		end
+
+		-- 4. mirrored scene clones
+		if wantScene and plane then
+			local cp, cd, n = {}, {}, 0
+			local minDiag, chars = S.refl_minsize, S.refl_chars
+			for i = 1, #parts do
+				local p = parts[i]
+				if not Own[p] and not newGloss[p] then
+					local tr = (Orig[p] and Orig[p].Transparency) or p.Transparency
+					if tr < 0.95 then
+						local diag = p.Size.Magnitude
+						local pos = p.Position
+						if diag >= minDiag and diag < 2000 and pos.Y + diag * 0.5 > plane + 0.05
+							and (chars or not Core.inCharacter(p)) then
+							local dx, dy, dz = pos.X - cx, pos.Y - cy, pos.Z - cz
+							n = n + 1
+							cp[n] = p
+							cd[n] = dx * dx + dy * dy + dz * dz
+						end
+					end
+				end
+			end
+
+			local wanted = {}
+			if n > S.refl_max then
+				for _, k in ipairs(nearest(cd, n, S.refl_max)) do wanted[cp[k]] = true end
+			else
+				for i = 1, n do wanted[cp[i]] = true end
+			end
+
+			for src in pairs(clones) do
+				if not wanted[src] or not src.Parent then dropClone(src) end
+			end
+			rebuildDyn()
+
+			local made = 0
+			for src in pairs(wanted) do
+				if not clones[src] then
+					local c = makeClone(src)
+					if c then
+						clones[src] = c
+						c.Parent = folder
+					end
+					made = made + 1
+					if made % 120 == 0 then
+						task.wait()
+						if Dead or not (S.refl_on and S.refl_scene) then return end
+					end
+				end
+			end
+			rebuildDyn()
+		end
+
+		-- 5. neon glow lights
+		if wantNeon then
+			local cp, cd, n = {}, {}, 0
+			for i = 1, #parts do
+				local p = parts[i]
+				if not Own[p] then
+					local m = (Orig[p] and Orig[p].Material) or p.Material
+					if m == M_NEON and p.Transparency < 0.6 and p.Size.Magnitude >= 0.8 and not Core.inCharacter(p) then
+						local d = p.Position - center
+						n = n + 1
+						cp[n] = p
+						cd[n] = d:Dot(d)
+					end
+				end
+			end
+			local wanted = {}
+			if n > S.neon_max then
+				for _, k in ipairs(nearest(cd, n, S.neon_max)) do wanted[cp[k]] = true end
+			else
+				for i = 1, n do wanted[cp[i]] = true end
+			end
+			for p, l in pairs(glow) do
+				if not wanted[p] or not p.Parent then
+					pcall(function() l:Destroy() end)
+					glow[p] = nil
+				end
+			end
+			for p in pairs(wanted) do
+				local l = glow[p]
+				if not l or not l.Parent then
+					l = Instance.new("PointLight")
+					l.Name = "XG_Glow"
+					Own[l] = true
+					l.Parent = p
+					glow[p] = l
+				end
+				if l.Color ~= p.Color then l.Color = p.Color end
+				if l.Brightness ~= S.neon_bright then l.Brightness = S.neon_bright end
+				if l.Range ~= S.neon_range then l.Range = S.neon_range end
+				if l.Shadows ~= S.gpu_lightshadows then l.Shadows = S.gpu_lightshadows end
+			end
+		end
+	end
+
+	-- look of a glossy floor part (called from processPart)
+	function Core.floorLook(p)
+		local st = Styles[S.refl_style] or Styles["Wet Asphalt"]
+		local col = st.color
+		if not col then
+			local o = Orig[p]
+			local base = (o and o.Color) or p.Color
+			local d = 1 - S.refl_dark
+			col = Color3.new(base.R * d, base.G * d, base.B * d)
+		end
+		local tr
+		if S.refl_scene then tr = math.clamp(S.refl_strength * 0.92, 0, 0.92) end
+		return getMat(st.mat), col, S.refl_gloss, tr
+	end
+
+	-- re-mirror moving parts every frame (render step)
+	function Core.reflFrame(dt)
+		if not (S.refl_on and S.refl_scene) or not plane or #dynDst == 0 then return end
+		accum = accum + dt
+		if S.refl_hz < 60 and accum < 1 / S.refl_hz then return end
+		accum = 0
+		local n = #dynSrc
+		local cfs = {}
+		for i = 1, n do cfs[i] = mirrorCF(dynSrc[i].CFrame) end
+		local ok = pcall(function()
+			Workspace:BulkMoveTo(dynDst, cfs, Enum.BulkMoveMode.FireCFrameChanged)
+		end)
+		if not ok then dynSrc, dynDst = {}, {} end -- rebuilt at next scan
+	end
+
+	function Core.scanLoop()
+		task.spawn(function()
+			while not Dead do
+				local ok, err = pcall(scanOnce)
+				if not ok then
+					errCount = errCount + 1
+					if errCount <= 3 then warn("[XG] reflection scan error: " .. tostring(err)) end
+				end
+				local waited = 0
+				while waited < 0.5 and not Core.kick and not Dead do
+					task.wait(0.1)
+					waited = waited + 0.1
+				end
+				Core.kick = false
+			end
+		end)
+	end
+
+	function Core.destroyScanner()
+		clearClones()
+		clearGlow()
+		for p in pairs(GlossySet) do GlossySet[p] = nil end
+		if folder then pcall(function() folder:Destroy() end) end
+		folder = nil
+		Core.folder = nil
+	end
+end
+
+------------------------------------------------------------------------
+-- CHANGE ROUTING
 ------------------------------------------------------------------------
 local Controls = {}
 local function syncUI(keys)
@@ -787,7 +1630,6 @@ local function syncUI(keys)
 		if c then c.Set(S[k]) end
 	end
 end
-
 local function keyList(set)
 	local t = {}
 	for k in pairs(set) do t[#t + 1] = k end
@@ -797,11 +1639,31 @@ end
 local INST_KEYS = {}
 for _, k in ipairs({
 	"noshadows", "notextures", "smooth", "noparticles", "nopostfx", "lowmesh", "noreflect",
-	"sh_on", "surf_reflect",
+	"sh_on", "surf_reflect", "gpu_precise", "gpu_lightshadows",
 	"tex_on", "tex_pack", "tex_floor", "tex_wall", "tex_part",
-	"tex_mat_floor", "tex_mat_wall", "tex_mat_part", "tex_usecolors", "tex_minsize",
+	"tex_mat_floor", "tex_mat_wall", "tex_mat_part", "tex_usecolors", "tex_minsize", "tex_vary",
 	"tex_custom_on", "tex_custom_id", "tex_custom_size",
 }) do INST_KEYS[k] = true end
+
+local GLOSS_LOOK = { refl_style = true, refl_gloss = true, refl_dark = true, refl_strength = true, refl_scene = true }
+local SCAN_KEYS = {}
+for _, k in ipairs({
+	"refl_on", "refl_style", "refl_gloss", "refl_dark", "refl_strength", "refl_scene", "refl_range", "refl_max",
+	"refl_hz", "refl_chars", "refl_minsize", "refl_tol", "neon_on", "neon_max", "neon_range", "neon_bright",
+	"gpu_lightshadows",
+}) do SCAN_KEYS[k] = true end
+
+local glossToken = 0
+local function scheduleGloss()
+	glossToken = glossToken + 1
+	local t = glossToken
+	task.delay(0.08, function()
+		if t ~= glossToken or Dead then return end
+		for p in pairs(GlossySet) do
+			if p.Parent then pcall(Core.processInstance, p) end
+		end
+	end)
+end
 
 local function changed(key)
 	if SHADER_KEYS[key] then
@@ -829,10 +1691,507 @@ local function changed(key)
 		end
 		syncUI({ "tex_pack" })
 	end
-	pcall(applyGlobal)
-	if INST_KEYS[key] then scheduleRefresh(0.15) end
+	pcall(Core.applyGlobal)
+	if INST_KEYS[key] then Core.scheduleRefresh(0.15) end
+	if GLOSS_LOOK[key] then scheduleGloss() end
+	if SCAN_KEYS[key] then Core.kick = true end
 end
 
+local function fullApply()
+	pcall(Core.applyGlobal)
+	Core.scheduleRefresh(0.05)
+	Core.kick = true
+end
+
+------------------------------------------------------------------------
+-- WINDOW
+------------------------------------------------------------------------
+local C = {
+	bg = rgb(14, 15, 22), side = rgb(20, 21, 30), row = rgb(30, 32, 46), off = rgb(54, 58, 82),
+	accent = THEMES[S.theme] or THEMES.Blue,
+	text = rgb(236, 238, 248), sub = rgb(140, 146, 170), stroke = rgb(48, 52, 74),
+	danger = rgb(226, 76, 92), good = rgb(70, 210, 140), warn = rgb(255, 180, 70),
+}
+local FONT, FONT_B = Enum.Font.GothamMedium, Enum.Font.GothamBold
+local function f1(v) return string.format("%.1f", v) end
+local function f2(v) return string.format("%.2f", v) end
+
+local accentRefs = {}
+local function acc(o, prop)
+	accentRefs[#accentRefs + 1] = { o, prop }
+	o[prop] = C.accent
+	return o
+end
+
+local gui = new("ScreenGui", {
+	Name = tostring(math.random(1000000, 9000000)), ResetOnSpawn = false,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 1000, IgnoreGuiInset = true,
+})
+mountGui(gui)
+
+local WIN_W, WIN_H = 680, 460
+local vp = (Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize) or Vector2.new(1280, 720)
+local baseScale = math.clamp(math.min(vp.X * 0.96 / WIN_W, vp.Y * 0.92 / WIN_H), 0.45, 1)
+
+local main = new("Frame", {
+	Size = UDim2.fromOffset(WIN_W, WIN_H), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+	BackgroundColor3 = C.bg, BorderSizePixel = 0, ClipsDescendants = true,
+}, gui)
+round(main, 12)
+new("UIStroke", { Color = C.stroke, Thickness = 1 }, main)
+local uiScaleObj = new("UIScale", { Scale = baseScale * S.ui_scale }, main)
+
+-- title bar
+local titleBar = new("Frame", { Size = UDim2.new(1, 0, 0, 38), BackgroundColor3 = C.side, BorderSizePixel = 0 }, main)
+new("UIGradient", {
+	Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(190, 190, 205)), Rotation = 90,
+}, titleBar)
+local titleLabel = new("TextLabel", {
+	Size = UDim2.new(0, 300, 1, 0), Position = UDim2.fromOffset(16, 0), BackgroundTransparency = 1,
+	RichText = true, Text = "", Font = FONT_B, TextSize = 14, TextColor3 = C.text,
+	TextXAlignment = Enum.TextXAlignment.Left,
+}, titleBar)
+local function setTitle()
+	titleLabel.Text = string.format('XG GRAPHICS SUITE  <font color="#%s">ULTRA</font>', C.accent:ToHex())
+end
+setTitle()
+local fpsLabel = new("TextLabel", {
+	Size = UDim2.new(0, 90, 1, 0), Position = UDim2.new(1, -150, 0, 0), BackgroundTransparency = 1,
+	Text = "-- FPS", Font = FONT_B, TextSize = 12, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Right,
+}, titleBar)
+acc(fpsLabel, "TextColor3")
+
+local function titleButton(text, xOff, color)
+	local b = new("TextButton", {
+		Size = UDim2.fromOffset(26, 22), Position = UDim2.new(1, xOff, 0.5, -11), BackgroundColor3 = color,
+		Text = text, Font = FONT_B, TextSize = 14, TextColor3 = C.text, AutoButtonColor = true,
+	}, titleBar)
+	round(b, 6)
+	return b
+end
+local btnMin = titleButton("-", -64, C.off)
+local btnClose = titleButton("x", -34, C.danger)
+
+local accentLine = new("Frame", {
+	Size = UDim2.new(1, 0, 0, 2), Position = UDim2.fromOffset(0, 38), BackgroundColor3 = C.accent, BorderSizePixel = 0,
+}, main)
+acc(accentLine, "BackgroundColor3")
+
+-- body
+local body = new("Frame", {
+	Size = UDim2.new(1, 0, 1, -62), Position = UDim2.fromOffset(0, 40), BackgroundTransparency = 1,
+}, main)
+local sidebar = new("Frame", { Size = UDim2.new(0, 142, 1, 0), BackgroundColor3 = C.side, BorderSizePixel = 0 }, body)
+padding(sidebar, 8, 10, 8, 8)
+new("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, sidebar)
+
+local content = new("Frame", {
+	Size = UDim2.new(1, -152, 1, -10), Position = UDim2.fromOffset(148, 6), BackgroundTransparency = 1,
+}, body)
+
+-- footer
+local footer = new("Frame", {
+	Size = UDim2.new(1, 0, 0, 22), Position = UDim2.new(0, 0, 1, -22), BackgroundColor3 = C.side, BorderSizePixel = 0,
+}, main)
+local statusLabel = new("TextLabel", {
+	Size = UDim2.new(1, -16, 1, 0), Position = UDim2.fromOffset(8, 0), BackgroundTransparency = 1, Text = "",
+	Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = C.sub, TextXAlignment = Enum.TextXAlignment.Left,
+}, footer)
+
+local statusToken = 0
+local function setStatus(msg)
+	statusToken = statusToken + 1
+	local t = statusToken
+	statusLabel.Text = msg
+	task.delay(4, function()
+		if t == statusToken and statusLabel.Parent then
+			statusLabel.Text = "Drag the title bar to move   |   " .. S.ui_key .. " = show / hide"
+		end
+	end)
+end
+
+-- window dragging
+do
+	local dragging, dragStart, startPos
+	connect(titleBar.InputBegan, function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging, dragStart, startPos = true, input.Position, main.Position
+		end
+	end)
+	connect(UserInputService.InputChanged, function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local d = input.Position - dragStart
+			main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+		end
+	end)
+	connect(UserInputService.InputEnded, function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+end
+
+-- slider dragging (one shared handler)
+local activeSlider = nil
+connect(UserInputService.InputChanged, function(input)
+	if activeSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		activeSlider.drag(input.Position.X)
+	end
+end)
+connect(UserInputService.InputEnded, function(input)
+	if activeSlider and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+		activeSlider.stop()
+		activeSlider = nil
+	end
+end)
+
+------------------------------------------------------------------------
+-- PAGES + CONTROLS
+------------------------------------------------------------------------
+local Page = {}
+Page.__index = Page
+local pages, tabButtons = {}, {}
+local currentTab = nil
+
+local function selectTab(name)
+	currentTab = name
+	for n, p in pairs(pages) do p.Frame.Visible = (n == name) end
+	for n, b in pairs(tabButtons) do
+		local sel = (n == name)
+		b.BackgroundColor3 = sel and C.accent or C.row
+		b.TextColor3 = sel and Color3.new(1, 1, 1) or C.sub
+	end
+end
+
+local tabOrder = 0
+local function newPage(name)
+	local scroller = new("ScrollingFrame", {
+		Name = name, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0,
+		ScrollBarThickness = 3, ScrollBarImageColor3 = C.accent, CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false,
+	}, content)
+	acc(scroller, "ScrollBarImageColor3")
+	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, scroller)
+	padding(scroller, 2, 2, 8, 8)
+
+	tabOrder = tabOrder + 1
+	local b = new("TextButton", {
+		Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = C.row, Text = name, Font = FONT, TextSize = 13,
+		TextColor3 = C.sub, AutoButtonColor = false, LayoutOrder = tabOrder,
+	}, sidebar)
+	round(b, 7)
+	b.MouseButton1Click:Connect(function() selectTab(name) end)
+
+	local page = setmetatable({ Frame = scroller, order = 0 }, Page)
+	pages[name] = page
+	tabButtons[name] = b
+	return page
+end
+
+function Page:_next()
+	self.order = self.order + 1
+	return self.order
+end
+
+function Page:Section(text)
+	local l = new("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, Text = string.upper(text), Font = FONT_B,
+		TextSize = 11, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = self:_next(),
+	}, self.Frame)
+	acc(l, "TextColor3")
+	padding(l, 4, 8, 0, 0)
+end
+
+function Page:Label(text)
+	local l = new("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Text = text,
+		TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+		Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.sub, LayoutOrder = self:_next(),
+	}, self.Frame)
+	padding(l, 4, 0, 4, 0)
+	return l
+end
+
+function Page:Button(text, cb, color)
+	local b = new("TextButton", {
+		Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = color or C.accent, Text = text, Font = FONT, TextSize = 13,
+		TextColor3 = Color3.new(1, 1, 1), AutoButtonColor = true, LayoutOrder = self:_next(),
+	}, self.Frame)
+	if not color then acc(b, "BackgroundColor3") end
+	round(b, 7)
+	b.MouseButton1Click:Connect(cb)
+	return b
+end
+
+function Page:ButtonRow(defs)
+	local row = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, LayoutOrder = self:_next(),
+	}, self.Frame)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder,
+	}, row)
+	local n = #defs
+	for i, d in ipairs(defs) do
+		local b = new("TextButton", {
+			Size = UDim2.new(1 / n, -(6 * (n - 1)) / n, 1, 0), BackgroundColor3 = d.color or C.accent, Text = d.text,
+			Font = FONT, TextSize = 12, TextColor3 = Color3.new(1, 1, 1), AutoButtonColor = true, LayoutOrder = i,
+		}, row)
+		if not d.color then acc(b, "BackgroundColor3") end
+		round(b, 7)
+		b.MouseButton1Click:Connect(d.cb)
+	end
+end
+
+function Page:Toggle(text, key, onSet)
+	local row = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = C.row, BorderSizePixel = 0, LayoutOrder = self:_next(),
+	}, self.Frame)
+	round(row, 7)
+	new("TextLabel", {
+		Size = UDim2.new(1, -66, 1, 0), Position = UDim2.fromOffset(12, 0), BackgroundTransparency = 1, Text = text,
+		Font = FONT, TextSize = 13, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left,
+	}, row)
+	local sw = new("Frame", {
+		Size = UDim2.fromOffset(38, 18), Position = UDim2.new(1, -50, 0.5, -9), BackgroundColor3 = C.off, BorderSizePixel = 0,
+	}, row)
+	round(sw, 9)
+	local knob = new("Frame", {
+		Size = UDim2.fromOffset(14, 14), Position = UDim2.fromOffset(2, 2), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
+	}, sw)
+	round(knob, 7)
+	local btn = new("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 2 }, row)
+
+	local function render(v)
+		local info = TweenInfo.new(0.12)
+		TweenService:Create(sw, info, { BackgroundColor3 = v and C.accent or C.off }):Play()
+		TweenService:Create(knob, info, { Position = v and UDim2.fromOffset(22, 2) or UDim2.fromOffset(2, 2) }):Play()
+	end
+	render(S[key])
+	btn.MouseButton1Click:Connect(function()
+		S[key] = not S[key]
+		render(S[key])
+		changed(key)
+		if onSet then onSet(S[key]) end
+	end)
+	Controls[key] = { Set = render }
+end
+
+function Page:Slider(text, key, min, max, step, fmt, onSet)
+	local row = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 48), BackgroundColor3 = C.row, BorderSizePixel = 0, LayoutOrder = self:_next(),
+	}, self.Frame)
+	round(row, 7)
+	new("TextLabel", {
+		Size = UDim2.new(0.65, 0, 0, 22), Position = UDim2.fromOffset(12, 4), BackgroundTransparency = 1, Text = text,
+		Font = FONT, TextSize = 13, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left,
+	}, row)
+	local valLabel = new("TextLabel", {
+		Size = UDim2.new(0.35, -12, 0, 22), Position = UDim2.new(0.65, 0, 0, 4), BackgroundTransparency = 1, Text = "",
+		Font = FONT_B, TextSize = 12, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Right,
+	}, row)
+	acc(valLabel, "TextColor3")
+	local track = new("Frame", {
+		Size = UDim2.new(1, -24, 0, 6), Position = UDim2.fromOffset(12, 35), BackgroundColor3 = C.off, BorderSizePixel = 0,
+	}, row)
+	round(track, 3)
+	local fill = new("Frame", { Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = C.accent, BorderSizePixel = 0 }, track)
+	acc(fill, "BackgroundColor3")
+	round(fill, 3)
+	local knob = new("Frame", {
+		Size = UDim2.fromOffset(12, 12), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
+		BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
+	}, fill)
+	round(knob, 6)
+	local hit = new("TextButton", {
+		Size = UDim2.new(1, 0, 0, 28), Position = UDim2.fromOffset(0, 22), BackgroundTransparency = 1, Text = "", ZIndex = 2,
+	}, row)
+
+	local page = self
+	local function render(v)
+		local a = (v - min) / (max - min)
+		fill.Size = UDim2.new(math.clamp(a, 0, 1), 0, 1, 0)
+		valLabel.Text = fmt and fmt(v) or tostring(v)
+	end
+	local function setFromX(x)
+		local a = math.clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
+		local v = min + a * (max - min)
+		v = math.floor(v / step + 0.5) * step
+		v = math.clamp(tonumber(string.format("%.4f", v)), min, max)
+		if v ~= S[key] then
+			S[key] = v
+			render(v)
+			changed(key)
+			if onSet then onSet(v) end
+		end
+	end
+	hit.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			page.Frame.ScrollingEnabled = false
+			activeSlider = { drag = setFromX, stop = function() page.Frame.ScrollingEnabled = true end }
+			setFromX(input.Position.X)
+		end
+	end)
+	Controls[key] = { Set = render }
+	render(S[key])
+end
+
+function Page:Select(text, options, key, onPick, collapsible)
+	local box = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.row,
+		BorderSizePixel = 0, LayoutOrder = self:_next(),
+	}, self.Frame)
+	round(box, 7)
+	padding(box, 12, 9, 12, 9)
+	new("UIListLayout", { Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder }, box)
+
+	local head = new("TextButton", {
+		Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = 1,
+	}, box)
+	new("TextLabel", {
+		Size = UDim2.new(0.55, 0, 1, 0), BackgroundTransparency = 1, Text = text, Font = FONT, TextSize = 13,
+		TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left,
+	}, head)
+	local valueLabel = new("TextLabel", {
+		Size = UDim2.new(0.45, 0, 1, 0), Position = UDim2.fromScale(0.55, 0), BackgroundTransparency = 1, Text = "",
+		Font = FONT_B, TextSize = 12, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Right,
+	}, head)
+	acc(valueLabel, "TextColor3")
+
+	local chipBox = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+		LayoutOrder = 2, Visible = not collapsible,
+	}, box)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal, Wraps = true, Padding = UDim.new(0, 5),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, chipBox)
+
+	local chips = {}
+	local open = not collapsible
+	local function render(v)
+		for name, b in pairs(chips) do
+			local sel = (name == v)
+			b.BackgroundColor3 = sel and C.accent or C.off
+			b.TextColor3 = sel and Color3.new(1, 1, 1) or C.text
+		end
+		local suffix = ""
+		if collapsible then suffix = open and "  [-]" or "  [+]" end
+		valueLabel.Text = tostring(v) .. suffix
+	end
+
+	for i, opt in ipairs(options) do
+		local b = new("TextButton", {
+			Size = UDim2.new(0, 0, 0, 25), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = C.off, Text = opt,
+			Font = FONT, TextSize = 12, TextColor3 = C.text, AutoButtonColor = false, LayoutOrder = i,
+		}, chipBox)
+		round(b, 6)
+		padding(b, 10, 0, 10, 0)
+		chips[opt] = b
+		b.MouseButton1Click:Connect(function()
+			if onPick then
+				onPick(opt)
+			else
+				S[key] = opt
+				render(opt)
+				changed(key)
+			end
+		end)
+	end
+	if collapsible then
+		head.MouseButton1Click:Connect(function()
+			open = not open
+			chipBox.Visible = open
+			render(S[key])
+		end)
+	end
+	Controls[key] = { Set = render }
+	render(S[key])
+end
+
+function Page:Input(text, key, placeholder)
+	local row = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 60), BackgroundColor3 = C.row, BorderSizePixel = 0, LayoutOrder = self:_next(),
+	}, self.Frame)
+	round(row, 7)
+	new("TextLabel", {
+		Size = UDim2.new(1, -24, 0, 20), Position = UDim2.fromOffset(12, 4), BackgroundTransparency = 1, Text = text,
+		Font = FONT, TextSize = 13, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left,
+	}, row)
+	local box = new("TextBox", {
+		Size = UDim2.new(1, -24, 0, 27), Position = UDim2.fromOffset(12, 27), BackgroundColor3 = C.off, Text = S[key],
+		PlaceholderText = placeholder or "", PlaceholderColor3 = C.sub, ClearTextOnFocus = false, Font = FONT,
+		TextSize = 12, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left,
+	}, row)
+	round(box, 6)
+	padding(box, 8, 0, 8, 0)
+	box.FocusLost:Connect(function()
+		S[key] = box.Text
+		changed(key)
+	end)
+	Controls[key] = { Set = function(v) box.Text = v end }
+end
+
+-- grid of live value readouts; returns { id = TextLabel }
+function Page:Stats(defs)
+	local grid = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+		LayoutOrder = self:_next(),
+	}, self.Frame)
+	new("UIGridLayout", {
+		CellSize = UDim2.new(1 / 3, -6, 0, 46), CellPadding = UDim2.fromOffset(8, 8), SortOrder = Enum.SortOrder.LayoutOrder,
+	}, grid)
+	local out = {}
+	for i, d in ipairs(defs) do
+		local cell = new("Frame", { BackgroundColor3 = C.row, BorderSizePixel = 0, LayoutOrder = i }, grid)
+		round(cell, 7)
+		new("TextLabel", {
+			Size = UDim2.new(1, -16, 0, 16), Position = UDim2.fromOffset(10, 5), BackgroundTransparency = 1, Text = d[2],
+			Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = C.sub, TextXAlignment = Enum.TextXAlignment.Left,
+		}, cell)
+		out[d[1]] = new("TextLabel", {
+			Size = UDim2.new(1, -16, 0, 22), Position = UDim2.fromOffset(10, 20), BackgroundTransparency = 1, Text = "--",
+			Font = FONT_B, TextSize = 16, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left,
+		}, cell)
+	end
+	return out
+end
+
+-- bar graph; returns update(values, reference)
+function Page:Graph(n, height)
+	local box = new("Frame", {
+		Size = UDim2.new(1, 0, 0, height), BackgroundColor3 = C.row, BorderSizePixel = 0, LayoutOrder = self:_next(),
+	}, self.Frame)
+	round(box, 7)
+	local inner = new("Frame", {
+		Size = UDim2.new(1, -20, 1, -20), Position = UDim2.fromOffset(10, 10), BackgroundTransparency = 1,
+	}, box)
+	local bars = {}
+	for i = 1, n do
+		bars[i] = new("Frame", {
+			AnchorPoint = Vector2.new(0, 1), Position = UDim2.new((i - 1) / n, 0, 1, 0), Size = UDim2.new(1 / n, -2, 0.04, 0),
+			BackgroundColor3 = C.accent, BorderSizePixel = 0,
+		}, inner)
+		round(bars[i], 2)
+	end
+	return function(values, ref)
+		local top = math.max(ref * 1.25, 1)
+		for i = 1, n do
+			local v = values[i] or 0
+			bars[i].Size = UDim2.new(1 / n, -2, math.clamp(v / top, 0.04, 1), 0)
+			if v >= ref * 0.75 then
+				bars[i].BackgroundColor3 = C.accent
+			elseif v >= ref * 0.5 then
+				bars[i].BackgroundColor3 = C.warn
+			else
+				bars[i].BackgroundColor3 = C.danger
+			end
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- PRESETS / PROFILES / THEME / CONFIG
+------------------------------------------------------------------------
 local function applyShaderPreset(name)
 	if name == "Off" then
 		S.sh_on = false
@@ -845,8 +2204,7 @@ local function applyShaderPreset(name)
 		S.sh_on = true
 		S.sh_preset = name
 	end
-	syncUI(keyList(SHADER_KEYS))
-	syncUI({ "sh_preset" })
+	syncUI(keyList(DEFAULTS))
 	fullApply()
 end
 
@@ -875,436 +2233,147 @@ local function applyPack(name)
 	fullApply()
 end
 
-------------------------------------------------------------------------
--- UI
-------------------------------------------------------------------------
-local C = {
-	bg = Color3.fromRGB(17, 18, 25),
-	side = Color3.fromRGB(23, 24, 33),
-	row = Color3.fromRGB(33, 35, 49),
-	off = Color3.fromRGB(58, 62, 84),
-	accent = Color3.fromRGB(86, 148, 255),
-	text = Color3.fromRGB(235, 237, 246),
-	sub = Color3.fromRGB(145, 150, 172),
-	stroke = Color3.fromRGB(52, 55, 76),
-	danger = Color3.fromRGB(226, 76, 92),
-}
-local FONT, FONT_B = Enum.Font.GothamMedium, Enum.Font.GothamBold
+local function applyStyleValues(name)
+	local st = Styles[name]
+	if not st then return end
+	S.refl_style = name
+	S.refl_gloss, S.refl_dark, S.refl_strength = st.gloss, st.dark, st.strength
+end
 
-local function new(class, props, parent)
-	local o = Instance.new(class)
-	for k, v in pairs(props) do o[k] = v end
-	if parent then o.Parent = parent end
-	return o
+local function applyProfile(name)
+	local p = PROFILES[name]
+	if not p then return end
+	for k, v in pairs(DEFAULTS) do
+		if not KEEP[k] then S[k] = v end
+	end
+	if p.shader then
+		for k, v in pairs(SHADER_BASE) do S[k] = v end
+		for k, v in pairs(SHADER_PRESETS[p.shader]) do S[k] = v end
+		S.sh_on = true
+		S.sh_preset = p.shader
+	end
+	if p.low then
+		local lp = LOW_PRESETS[p.low]
+		for _, k in ipairs(LOW_KEYS) do S[k] = lp[k] == true end
+		S.low_preset = p.low
+	end
+	if p.style then applyStyleValues(p.style) end
+	for k, v in pairs(p.set or {}) do S[k] = v end
+	syncUI(keyList(DEFAULTS))
+	fullApply()
+	setStatus("Profile applied: " .. name)
 end
-local function round(o, r)
-	return new("UICorner", { CornerRadius = UDim.new(0, r) }, o)
-end
-local function padding(o, l, t, r, b)
-	return new("UIPadding", {
-		PaddingLeft = UDim.new(0, l), PaddingTop = UDim.new(0, t),
-		PaddingRight = UDim.new(0, r), PaddingBottom = UDim.new(0, b),
-	}, o)
-end
-local function f1(v) return string.format("%.1f", v) end
-local function f2(v) return string.format("%.2f", v) end
 
-local gui = new("ScreenGui", {
-	Name = tostring(math.random(1000000, 9000000)),
-	ResetOnSpawn = false,
-	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-	DisplayOrder = 1000,
-	IgnoreGuiInset = true,
+local function resetAll()
+	for k, v in pairs(DEFAULTS) do
+		if not KEEP[k] then S[k] = v end
+	end
+	syncUI(keyList(DEFAULTS))
+	fullApply()
+	setStatus("Everything reset to default.")
+end
+
+local function setTheme(name)
+	local col = THEMES[name]
+	if not col then return end
+	S.theme = name
+	C.accent = col
+	for _, r in ipairs(accentRefs) do
+		if r[1].Parent then r[1][r[2]] = col end
+	end
+	setTitle()
+	syncUI(keyList(DEFAULTS))
+	if currentTab then selectTab(currentTab) end
+end
+
+local AUTOFILE = "XG_Graphics_autoload.txt"
+local function cfgFile() return "XG_Graphics_" .. S.cfg_slot .. ".json" end
+
+local function saveConfig()
+	if not HAS.files then setStatus("Your executor has no file functions.") return end
+	local ok = pcall(function() writefile(cfgFile(), HttpService:JSONEncode(S)) end)
+	setStatus(ok and ("Saved to slot " .. S.cfg_slot) or "Failed to save config.")
+end
+
+local function loadConfig(silent)
+	if not HAS.files then
+		if not silent then setStatus("Your executor has no file functions.") end
+		return
+	end
+	local ok, data = pcall(function()
+		if not isfile(cfgFile()) then return nil end
+		return HttpService:JSONDecode(readfile(cfgFile()))
+	end)
+	if not ok or type(data) ~= "table" then
+		if not silent then setStatus("No saved config in slot " .. S.cfg_slot) end
+		return
+	end
+	for k, v in pairs(data) do
+		if DEFAULTS[k] ~= nil and type(v) == type(DEFAULTS[k]) then S[k] = v end
+	end
+	uiScaleObj.Scale = baseScale * S.ui_scale
+	setTheme(S.theme)
+	Core.applyFps()
+	fullApply()
+	setStatus("Loaded slot " .. S.cfg_slot)
+end
+
+------------------------------------------------------------------------
+-- TAB: DASHBOARD
+------------------------------------------------------------------------
+local tDash = newPage("Dashboard")
+tDash:Section("Performance Monitor")
+local statLabels = tDash:Stats({
+	{ "fps", "FPS" }, { "avg", "Average (2s)" }, { "low", "1% Low" },
+	{ "ms", "Frame Time" }, { "mem", "Memory" }, { "ping", "Ping" },
 })
-if type(syn) == "table" and syn.protect_gui then pcall(syn.protect_gui, gui) end
-local mounted = false
-if HAS.gethui then
-	mounted = pcall(function() gui.Parent = gethui() end)
-end
-if not mounted or not gui.Parent then
-	mounted = pcall(function() gui.Parent = CoreGui end)
-end
-if not mounted or not gui.Parent then
-	gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-end
-
-local WIN_W, WIN_H = 580, 400
-local vp = (Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize) or Vector2.new(1280, 720)
-local scale = math.clamp(math.min(vp.X * 0.96 / WIN_W, vp.Y * 0.92 / WIN_H), 0.5, 1)
-
-local main = new("Frame", {
-	Size = UDim2.fromOffset(WIN_W, WIN_H),
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.5, 0.5),
-	BackgroundColor3 = C.bg,
-	BorderSizePixel = 0,
-	ClipsDescendants = true,
-}, gui)
-round(main, 10)
-new("UIStroke", { Color = C.stroke, Thickness = 1 }, main)
-new("UIScale", { Scale = scale }, main)
-
--- title bar
-local titleBar = new("Frame", { Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = C.side, BorderSizePixel = 0 }, main)
-new("TextLabel", {
-	Size = UDim2.new(0, 220, 1, 0), Position = UDim2.fromOffset(14, 0), BackgroundTransparency = 1,
-	Text = "PVTIC'S GRAPHICS", Font = FONT_B, TextSize = 14, TextColor3 = C.text,
-	TextXAlignment = Enum.TextXAlignment.Left,
-}, titleBar)
-local fpsLabel = new("TextLabel", {
-	Size = UDim2.new(0, 80, 1, 0), Position = UDim2.new(1, -140, 0, 0), BackgroundTransparency = 1,
-	Text = "-- FPS", Font = FONT, TextSize = 12, TextColor3 = C.accent,
-	TextXAlignment = Enum.TextXAlignment.Right,
-}, titleBar)
-
-local function titleButton(text, xOff, color)
-	local b = new("TextButton", {
-		Size = UDim2.fromOffset(24, 22), Position = UDim2.new(1, xOff, 0.5, -11),
-		BackgroundColor3 = color, Text = text, Font = FONT_B, TextSize = 14, TextColor3 = C.text,
-		AutoButtonColor = true,
-	}, titleBar)
-	round(b, 5)
-	return b
-end
-local btnMin = titleButton("-", -58, C.off)
-local btnClose = titleButton("x", -30, C.danger)
-
--- body
-local body = new("Frame", {
-	Size = UDim2.new(1, 0, 1, -54), Position = UDim2.fromOffset(0, 34), BackgroundTransparency = 1,
-}, main)
-local sidebar = new("Frame", { Size = UDim2.new(0, 128, 1, 0), BackgroundColor3 = C.side, BorderSizePixel = 0 }, body)
-padding(sidebar, 8, 10, 8, 8)
-new("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, sidebar)
-
-local content = new("Frame", {
-	Size = UDim2.new(1, -138, 1, -10), Position = UDim2.fromOffset(134, 6), BackgroundTransparency = 1,
-}, body)
-
--- footer
-local footer = new("Frame", {
-	Size = UDim2.new(1, 0, 0, 20), Position = UDim2.new(0, 0, 1, -20), BackgroundColor3 = C.side, BorderSizePixel = 0,
-}, main)
-local statusLabel = new("TextLabel", {
-	Size = UDim2.new(1, -16, 1, 0), Position = UDim2.fromOffset(8, 0), BackgroundTransparency = 1,
-	Text = "", Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = C.sub,
-	TextXAlignment = Enum.TextXAlignment.Left,
-}, footer)
-
-local statusToken = 0
-local function setStatus(msg)
-	statusToken = statusToken + 1
-	local t = statusToken
-	statusLabel.Text = msg
-	task.delay(3.5, function()
-		if t == statusToken and statusLabel.Parent then
-			statusLabel.Text = "Drag the title bar to move  |  " .. S.ui_key .. " = show / hide"
-		end
-	end)
-end
-
--- dragging window
-do
-	local dragging, dragStart, startPos
-	connect(titleBar.InputBegan, function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging, dragStart, startPos = true, input.Position, main.Position
-		end
-	end)
-	connect(UserInputService.InputChanged, function(input)
-		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-			local d = input.Position - dragStart
-			main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
-		end
-	end)
-	connect(UserInputService.InputEnded, function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = false
-		end
-	end)
-end
-
--- slider dragging (single shared handler)
-local activeSlider = nil
-connect(UserInputService.InputChanged, function(input)
-	if activeSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-		activeSlider.drag(input.Position.X)
-	end
-end)
-connect(UserInputService.InputEnded, function(input)
-	if activeSlider and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-		activeSlider.stop()
-		activeSlider = nil
-	end
-end)
-
--- pages -----------------------------------------------------------------
-local Page = {}
-Page.__index = Page
-local pages, tabButtons = {}, {}
-
-local function selectTab(name)
-	for n, p in pairs(pages) do p.Frame.Visible = (n == name) end
-	for n, b in pairs(tabButtons) do
-		local sel = (n == name)
-		b.BackgroundColor3 = sel and C.accent or C.row
-		b.TextColor3 = sel and Color3.new(1, 1, 1) or C.sub
-	end
-end
-
-local tabOrder = 0
-local function newPage(name)
-	local scroller = new("ScrollingFrame", {
-		Name = name, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0,
-		ScrollBarThickness = 3, ScrollBarImageColor3 = C.accent, CanvasSize = UDim2.new(),
-		AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false,
-	}, content)
-	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, scroller)
-	padding(scroller, 2, 2, 8, 8)
-
-	tabOrder = tabOrder + 1
-	local b = new("TextButton", {
-		Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = C.row, Text = name, Font = FONT, TextSize = 13,
-		TextColor3 = C.sub, AutoButtonColor = false, LayoutOrder = tabOrder,
-	}, sidebar)
-	round(b, 6)
-	b.MouseButton1Click:Connect(function() selectTab(name) end)
-
-	local page = setmetatable({ Frame = scroller, order = 0 }, Page)
-	pages[name] = page
-	tabButtons[name] = b
-	return page
-end
-
-function Page:_next()
-	self.order = self.order + 1
-	return self.order
-end
-
-function Page:Section(text)
-	local l = new("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, Text = string.upper(text), Font = FONT_B,
-		TextSize = 11, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = self:_next(),
-	}, self.Frame)
-	padding(l, 4, 6, 0, 0)
-end
-
-function Page:Label(text)
-	local l = new("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Text = text,
-		TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
-		Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.sub, LayoutOrder = self:_next(),
-	}, self.Frame)
-	padding(l, 4, 0, 4, 0)
-end
-
-function Page:Button(text, cb, color)
-	local b = new("TextButton", {
-		Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = color or C.accent, Text = text, Font = FONT, TextSize = 13,
-		TextColor3 = Color3.new(1, 1, 1), AutoButtonColor = true, LayoutOrder = self:_next(),
-	}, self.Frame)
-	round(b, 6)
-	b.MouseButton1Click:Connect(cb)
-end
-
-function Page:Toggle(text, key, onSet)
-	local row = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = C.row, BorderSizePixel = 0, LayoutOrder = self:_next(),
-	}, self.Frame)
-	round(row, 6)
-	new("TextLabel", {
-		Size = UDim2.new(1, -66, 1, 0), Position = UDim2.fromOffset(10, 0), BackgroundTransparency = 1, Text = text,
-		Font = FONT, TextSize = 13, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left,
-	}, row)
-	local sw = new("Frame", {
-		Size = UDim2.fromOffset(38, 18), Position = UDim2.new(1, -48, 0.5, -9), BackgroundColor3 = C.off, BorderSizePixel = 0,
-	}, row)
-	round(sw, 9)
-	local knob = new("Frame", {
-		Size = UDim2.fromOffset(14, 14), Position = UDim2.fromOffset(2, 2), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
-	}, sw)
-	round(knob, 7)
-	local btn = new("TextButton", {
-		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 2,
-	}, row)
-
-	local function render(v)
-		local info = TweenInfo.new(0.12)
-		TweenService:Create(sw, info, { BackgroundColor3 = v and C.accent or C.off }):Play()
-		TweenService:Create(knob, info, { Position = v and UDim2.fromOffset(22, 2) or UDim2.fromOffset(2, 2) }):Play()
-	end
-	render(S[key])
-	btn.MouseButton1Click:Connect(function()
-		S[key] = not S[key]
-		render(S[key])
-		changed(key)
-		if onSet then onSet(S[key]) end
-	end)
-	Controls[key] = { Set = render }
-end
-
-function Page:Slider(text, key, min, max, step, fmt, onSet)
-	local row = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 46), BackgroundColor3 = C.row, BorderSizePixel = 0, LayoutOrder = self:_next(),
-	}, self.Frame)
-	round(row, 6)
-	new("TextLabel", {
-		Size = UDim2.new(0.65, 0, 0, 22), Position = UDim2.fromOffset(10, 4), BackgroundTransparency = 1, Text = text,
-		Font = FONT, TextSize = 13, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left,
-	}, row)
-	local valLabel = new("TextLabel", {
-		Size = UDim2.new(0.35, -10, 0, 22), Position = UDim2.new(0.65, 0, 0, 4), BackgroundTransparency = 1, Text = "",
-		Font = FONT, TextSize = 12, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Right,
-	}, row)
-	local track = new("Frame", {
-		Size = UDim2.new(1, -20, 0, 6), Position = UDim2.fromOffset(10, 33), BackgroundColor3 = C.off, BorderSizePixel = 0,
-	}, row)
-	round(track, 3)
-	local fill = new("Frame", {
-		Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = C.accent, BorderSizePixel = 0,
-	}, track)
-	round(fill, 3)
-	local knob = new("Frame", {
-		Size = UDim2.fromOffset(12, 12), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
-		BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
-	}, fill)
-	round(knob, 6)
-	local hit = new("TextButton", {
-		Size = UDim2.new(1, 0, 0, 26), Position = UDim2.fromOffset(0, 22), BackgroundTransparency = 1, Text = "", ZIndex = 2,
-	}, row)
-
-	local page = self
-	local function render(v)
-		local a = (v - min) / (max - min)
-		fill.Size = UDim2.new(math.clamp(a, 0, 1), 0, 1, 0)
-		valLabel.Text = fmt and fmt(v) or tostring(v)
-	end
-	local function setFromX(x)
-		local a = math.clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
-		local v = min + a * (max - min)
-		v = math.floor(v / step + 0.5) * step
-		v = math.clamp(tonumber(string.format("%.4f", v)), min, max)
-		if v ~= S[key] then
-			S[key] = v
-			render(v)
-			changed(key)
-			if onSet then onSet(v) end
-		end
-	end
-	hit.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			page.Frame.ScrollingEnabled = false
-			activeSlider = {
-				drag = setFromX,
-				stop = function() page.Frame.ScrollingEnabled = true end,
-			}
-			setFromX(input.Position.X)
-		end
-	end)
-	Controls[key] = { Set = render }
-	render(S[key])
-end
-
-function Page:Select(text, options, key, onPick, collapsible)
-	local box = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.row,
-		BorderSizePixel = 0, LayoutOrder = self:_next(),
-	}, self.Frame)
-	round(box, 6)
-	padding(box, 10, 8, 10, 8)
-	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, box)
-
-	local head = new("TextButton", {
-		Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = 1,
-	}, box)
-	new("TextLabel", {
-		Size = UDim2.new(0.55, 0, 1, 0), BackgroundTransparency = 1, Text = text, Font = FONT, TextSize = 13,
-		TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left,
-	}, head)
-	local valueLabel = new("TextLabel", {
-		Size = UDim2.new(0.45, 0, 1, 0), Position = UDim2.fromScale(0.55, 0), BackgroundTransparency = 1, Text = "",
-		Font = FONT, TextSize = 12, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Right,
-	}, head)
-
-	local chipBox = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
-		LayoutOrder = 2, Visible = not collapsible,
-	}, box)
-	new("UIListLayout", {
-		FillDirection = Enum.FillDirection.Horizontal, Wraps = true, Padding = UDim.new(0, 5),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-	}, chipBox)
-
-	local chips = {}
-	local open = not collapsible
-	local function render(v)
-		for name, b in pairs(chips) do
-			local sel = (name == v)
-			b.BackgroundColor3 = sel and C.accent or C.off
-			b.TextColor3 = sel and Color3.new(1, 1, 1) or C.text
-		end
-		local suffix = ""
-		if collapsible then suffix = open and "  [-]" or "  [+]" end
-		valueLabel.Text = tostring(v) .. suffix
-	end
-
-	for i, opt in ipairs(options) do
-		local b = new("TextButton", {
-			Size = UDim2.new(0, 0, 0, 24), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = C.off, Text = opt,
-			Font = FONT, TextSize = 12, TextColor3 = C.text, AutoButtonColor = false, LayoutOrder = i,
-		}, chipBox)
-		round(b, 5)
-		padding(b, 10, 0, 10, 0)
-		chips[opt] = b
-		b.MouseButton1Click:Connect(function()
-			if onPick then
-				onPick(opt)
-			else
-				S[key] = opt
-				render(opt)
-				changed(key)
+local updateGraph = tDash:Graph(40, 78)
+local mapLabel = tDash:Label("Map: press Scan to count what is in this game.")
+tDash:Button("Scan Map (parts / meshes / lights / effects)", function()
+	task.spawn(function()
+		mapLabel.Text = "Scanning..."
+		local list = Workspace:GetDescendants()
+		local parts, meshes, lights, fx = 0, 0, 0, 0
+		for i = 1, #list do
+			local inst = list[i]
+			if inst:IsA("BasePart") then
+				parts = parts + 1
+				if inst:IsA("MeshPart") then meshes = meshes + 1 end
+			elseif inst:IsA("Light") then
+				lights = lights + 1
+			elseif inst:IsA("ParticleEmitter") or inst:IsA("Beam") or inst:IsA("Trail") then
+				fx = fx + 1
 			end
-		end)
-	end
-	if collapsible then
-		head.MouseButton1Click:Connect(function()
-			open = not open
-			chipBox.Visible = open
-			render(S[key])
-		end)
-	end
-	Controls[key] = { Set = render }
-	render(S[key])
-end
-
-function Page:Input(text, key, placeholder)
-	local row = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 58), BackgroundColor3 = C.row, BorderSizePixel = 0, LayoutOrder = self:_next(),
-	}, self.Frame)
-	round(row, 6)
-	new("TextLabel", {
-		Size = UDim2.new(1, -20, 0, 20), Position = UDim2.fromOffset(10, 4), BackgroundTransparency = 1, Text = text,
-		Font = FONT, TextSize = 13, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left,
-	}, row)
-	local box = new("TextBox", {
-		Size = UDim2.new(1, -20, 0, 26), Position = UDim2.fromOffset(10, 26), BackgroundColor3 = C.off, Text = S[key],
-		PlaceholderText = placeholder or "", PlaceholderColor3 = C.sub, ClearTextOnFocus = false, Font = FONT,
-		TextSize = 12, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left,
-	}, row)
-	round(box, 5)
-	padding(box, 8, 0, 8, 0)
-	box.FocusLost:Connect(function()
-		S[key] = box.Text
-		changed(key)
+			if i % 6000 == 0 then task.wait() end
+		end
+		mapLabel.Text = "Map: " .. parts .. " parts  |  " .. meshes .. " meshes  |  " .. lights .. " lights  |  " .. fx .. " effects"
 	end)
-	Controls[key] = { Set = function(v) box.Text = v end }
-end
+end)
+
+tDash:Section("One-Click Profiles")
+tDash:ButtonRow({
+	{ text = "ULTIMATE", cb = function() applyProfile("Ultimate") end },
+	{ text = "Cinematic", cb = function() applyProfile("Cinematic") end },
+	{ text = "Balanced", cb = function() applyProfile("Balanced") end },
+	{ text = "Performance", cb = function() applyProfile("Performance") end, color = C.off },
+})
+tDash:Label("Ultimate = Ultra RTX shaders + scene reflections + max quality + Future lighting + HD materials + neon lights. Needs a strong GPU.")
+
+tDash:Section("Screenshots")
+tDash:Toggle("Hide Roblox UI (chat, leaderboard, hotbar)", "hide_core")
+tDash:ButtonRow({
+	{ text = "Hide this window for 6s", cb = function()
+		main.Visible = false
+		task.delay(6, function() if main.Parent then main.Visible = true end end)
+	end },
+	{ text = "Reset Everything", cb = resetAll, color = C.off },
+})
 
 ------------------------------------------------------------------------
 -- TAB: LOW GRAPHICS
 ------------------------------------------------------------------------
 local tLow = newPage("Low Graphics")
-tLow:Label("Boost FPS and clean up the visuals. Every toggle is reversible - turn it off and the game's original values come back.")
+tLow:Label("Boost FPS and clean up visuals. Every toggle is reversible - turn it off and the game's original values come back.")
 tLow:Select("Quick Preset", { "Default", "Balanced", "Potato" }, "low_preset", applyLowPreset)
 
 tLow:Section("Lighting")
@@ -1336,21 +2405,24 @@ end
 -- TAB: SHADERS
 ------------------------------------------------------------------------
 local tSh = newPage("Shaders")
-tSh:Label("Makes the game look as good as possible using Bloom, Color Grading, Sun Rays, Depth of Field, Atmosphere and more. Pick a preset, then fine-tune anything below.")
+tSh:Label("Cinematic lighting and post-processing. Pick a preset, then fine-tune anything below. Fullbright overrides shader brightness / time.")
 tSh:Toggle("Enable Shaders", "sh_on")
 tSh:Select("Shader Preset", SHADER_ORDER, "sh_preset", applyShaderPreset)
 
-tSh:Section("Lighting")
+tSh:Section("Time & Sun")
 tSh:Toggle("Lock Time of Day", "tm_on")
 tSh:Slider("Time of Day (hour)", "clock", 0, 24, 0.1, f1)
+tSh:Toggle("Day / Night Cycle (animate time)", "cycle_on")
+tSh:Slider("Cycle Speed (hours per minute)", "cycle_speed", 0.1, 30, 0.1, f1)
+tSh:Slider("Sun Angle (latitude)", "sun_lat", 0, 90, 1)
+
+tSh:Section("Lighting")
 tSh:Slider("Brightness", "bright", 0, 6, 0.1, f1)
 tSh:Slider("Exposure", "exposure", -3, 3, 0.05, f2)
 tSh:Slider("Ambient Diffuse", "envdiff", 0, 1, 0.05, f2)
 tSh:Slider("Sky Reflections", "envspec", 0, 1, 0.05, f2)
-tSh:Slider("Surface Shine (reflectance)", "surf_reflect", 0, 0.5, 0.01, f2)
-if HAS.sethidden then
-	tSh:Toggle("Future Lighting (experimental)", "future")
-end
+tSh:Slider("Highlight Tint (cool <-> warm)", "shift_top", -1, 1, 0.01, f2)
+tSh:Slider("Shadow Tint (cool <-> warm)", "shift_bot", -1, 1, 0.01, f2)
 
 tSh:Section("Bloom")
 tSh:Toggle("Bloom", "bloom_on")
@@ -1372,8 +2444,9 @@ tSh:Slider("Spread", "sun_s", 0, 1, 0.01, f2)
 
 tSh:Section("Depth of Field")
 tSh:Toggle("Depth of Field", "dof_on")
+tSh:Toggle("Auto Focus (focus on what you look at)", "dof_auto")
 tSh:Slider("Far Blur", "dof_far", 0, 1, 0.01, f2)
-tSh:Slider("Focus Distance", "dof_focus", 0, 500, 1)
+tSh:Slider("Manual Focus Distance", "dof_focus", 0, 500, 1)
 tSh:Slider("In-Focus Radius", "dof_radius", 0, 500, 1)
 tSh:Slider("Near Blur", "dof_near", 0, 1, 0.01, f2)
 
@@ -1391,10 +2464,40 @@ tSh:Slider("Reflectance", "water_reflect", 0, 1, 0.01, f2)
 tSh:Slider("Wave Size", "water_wave", 0, 1, 0.01, f2)
 
 ------------------------------------------------------------------------
+-- TAB: REFLECTIONS
+------------------------------------------------------------------------
+local tRef = newPage("Reflections")
+tRef:Label("Wet / glossy floor reflections like a rain-soaked plaza. 'Glossy Floors' makes flat floors shiny and dark. 'Scene Reflections' goes further: it mirrors nearby buildings, trees, props and your avatar under the floor and makes the floor see-through, which approximates real mirror reflections. Roblox has no true ray-traced reflections, so this is the closest a script can get.")
+tRef:Section("Glossy Floors")
+tRef:Toggle("Glossy Floors", "refl_on")
+tRef:Select("Surface Style", STYLE_ORDER, "refl_style", function(opt)
+	applyStyleValues(opt)
+	syncUI({ "refl_style", "refl_gloss", "refl_dark", "refl_strength" })
+	changed("refl_style")
+end)
+tRef:Slider("Gloss (reflectance)", "refl_gloss", 0, 1, 0.01, f2)
+tRef:Slider("Wetness / Darkness", "refl_dark", 0, 0.9, 0.01, f2)
+tRef:Slider("Prop Shine (non-floor parts)", "surf_reflect", 0, 0.5, 0.01, f2)
+
+tRef:Section("Scene Reflections (real-time mirror)")
+tRef:Toggle("Scene Reflections", "refl_scene")
+tRef:Slider("Reflection Strength", "refl_strength", 0.1, 1, 0.01, f2)
+tRef:Slider("Range (studs)", "refl_range", 50, 800, 10)
+tRef:Slider("Max Reflected Parts", "refl_max", 100, 6000, 50)
+tRef:Slider("Update Rate (Hz)", "refl_hz", 5, 60, 1, function(v)
+	if v >= 60 then return "Every frame" end
+	return tostring(v)
+end)
+tRef:Toggle("Reflect Characters (you + others)", "refl_chars")
+tRef:Slider("Ignore objects smaller than (studs)", "refl_minsize", 0, 20, 0.5, f1)
+tRef:Slider("Floor Height Tolerance (studs)", "refl_tol", 0.25, 8, 0.25, f2)
+tRef:Label("Tips: works best on big flat floors (plazas, baseplates). Raise Range / Max Parts on a strong PC; lower them if FPS drops. Moving objects and characters update every frame, static objects every half second. Needs a floor made of normal parts (not Terrain).")
+
+------------------------------------------------------------------------
 -- TAB: TEXTURES
 ------------------------------------------------------------------------
 local tTex = newPage("Textures")
-tTex:Label("Re-skin the map. Floors, walls and other parts are detected automatically. Characters, glass and neon parts are left alone.")
+tTex:Label("Re-skin the map. Floors, walls and other parts are detected automatically. Characters, glass and neon parts are left alone. Glossy floors from the Reflections tab take priority on the floors they cover.")
 tTex:Toggle("Enable Texture Pack", "tex_on")
 tTex:Select("Texture Pack", PACK_ORDER, "tex_pack", applyPack)
 
@@ -1403,6 +2506,7 @@ tTex:Toggle("Floors / platforms", "tex_floor")
 tTex:Toggle("Walls", "tex_wall")
 tTex:Toggle("Other parts", "tex_part")
 tTex:Toggle("Use pack colors (off = keep original colors)", "tex_usecolors")
+tTex:Slider("Color Variation per part", "tex_vary", 0, 0.3, 0.01, f2)
 tTex:Slider("Ignore 'other' parts smaller than (studs)", "tex_minsize", 0, 30, 1)
 
 tTex:Section("Mix & Match Materials")
@@ -1420,97 +2524,130 @@ matPicker("Wall Material", "tex_mat_wall")
 matPicker("Other Parts Material", "tex_mat_part")
 
 tTex:Section("Custom Image Texture")
-tTex:Label("Paste an image asset ID (numbers only, or rbxassetid://...). It gets tiled over floors, walls and parts. Limited to ~3000 parts for performance.")
+tTex:Label("Paste an image asset ID (numbers only, or rbxassetid://...). It is tiled over floors, walls and parts. Limited to about 3000 parts for performance.")
 tTex:Toggle("Use Custom Image", "tex_custom_on")
 tTex:Input("Image Asset ID", "tex_custom_id", "e.g. 6372755229")
 tTex:Slider("Tile Size (studs)", "tex_custom_size", 2, 64, 1)
 
-tTex:Section("Materials")
-tTex:Toggle("HD Materials (2022) - may not work everywhere", "hdmats")
+------------------------------------------------------------------------
+-- TAB: GPU / ULTRA
+------------------------------------------------------------------------
+local tGpu = newPage("GPU / Ultra")
+tGpu:Label("Options that trade performance for quality. Meant for high-end PCs - if the game stutters, switch things off one by one.")
+tGpu:Section("Rendering")
+tGpu:Toggle("Maximum Quality Level (21)", "gpu_maxq")
+tGpu:Toggle("Precise Mesh Detail (max LOD)", "gpu_precise")
+tGpu:Toggle("HD Materials (2022) - may not work everywhere", "hdmats")
+if HAS.sethidden then
+	tGpu:Toggle("Future Lighting (experimental)", "future")
+else
+	tGpu:Label("Future Lighting needs sethiddenproperty, which your executor doesn't expose.")
+end
+
+tGpu:Section("Shadows")
+tGpu:Toggle("Custom Shadow Softness", "gpu_shadow_on")
+tGpu:Slider("Shadow Softness", "gpu_shadow", 0, 1, 0.01, f2)
+tGpu:Toggle("Every Light Casts Shadows (Future lighting)", "gpu_lightshadows")
+
+tGpu:Section("Neon Glow Lights")
+tGpu:Label("Neon parts near you get real PointLights so they light up the surroundings. Pairs well with Future lighting and wet floors.")
+tGpu:Toggle("Neon Parts Emit Light", "neon_on")
+tGpu:Slider("Max Lights", "neon_max", 10, 400, 10)
+tGpu:Slider("Light Range", "neon_range", 6, 60, 1)
+tGpu:Slider("Light Brightness", "neon_bright", 0.2, 6, 0.1, f1)
+
+tGpu:Section("Framerate")
+if HAS.setfpscap then
+	tGpu:Toggle("Custom FPS Cap (off = 60)", "fpscap_on", Core.applyFps)
+	tGpu:Slider("FPS Cap", "fpscap", 30, 1000, 10, function(v)
+		if v >= 1000 then return "Unlimited" end
+		return tostring(v)
+	end, Core.applyFps)
+else
+	tGpu:Label("FPS cap needs setfpscap, which your executor doesn't expose.")
+end
+
+------------------------------------------------------------------------
+-- TAB: EFFECTS
+------------------------------------------------------------------------
+local tFx = newPage("Effects")
+tFx:Section("Camera")
+tFx:Toggle("Motion Blur (blurs when you turn fast)", "mblur_on")
+tFx:Slider("Motion Blur Strength", "mblur_i", 0, 1, 0.01, f2)
+tFx:Toggle("Custom Field of View", "fov_on")
+tFx:Slider("Field of View", "fov", 40, 120, 1)
+
+tFx:Section("Screen Overlay")
+tFx:Toggle("Vignette", "vig_on")
+tFx:Slider("Vignette Strength", "vig_i", 0, 1, 0.01, f2)
+tFx:Toggle("Cinematic Bars", "bars_on")
+tFx:Slider("Bar Height", "bars_h", 0.04, 0.2, 0.005, f2)
+
+tFx:Section("Ambient Particles")
+tFx:Select("Mode", { "Off", "Dust", "Fireflies", "Snow" }, "part_mode")
+tFx:Slider("Density", "part_density", 0.2, 3, 0.1, f1)
 
 ------------------------------------------------------------------------
 -- TAB: SETTINGS
 ------------------------------------------------------------------------
-local CFG_FILE = "XG_Graphics_Config.json"
 local tSet = newPage("Settings")
-
-local function applyFps()
-	if not HAS.setfpscap then return end
-	pcall(setfpscap, S.fpscap_on and S.fpscap or 60)
-end
-
-local function saveConfig()
-	if not HAS.files then setStatus("Your executor has no file functions.") return end
-	local ok = pcall(function() writefile(CFG_FILE, HttpService:JSONEncode(S)) end)
-	setStatus(ok and ("Saved to " .. CFG_FILE) or "Failed to save config.")
-end
-
-local function loadConfig()
-	if not HAS.files then setStatus("Your executor has no file functions.") return end
-	local ok, data = pcall(function()
-		if not isfile(CFG_FILE) then return nil end
-		return HttpService:JSONDecode(readfile(CFG_FILE))
-	end)
-	if not ok or type(data) ~= "table" then setStatus("No saved config found.") return end
-	for k, v in pairs(data) do
-		if DEFAULTS[k] ~= nil and type(v) == type(DEFAULTS[k]) then S[k] = v end
-	end
-	syncUI(keyList(DEFAULTS))
-	applyFps()
-	fullApply()
-	setStatus("Config loaded.")
-end
-
-local function resetAll()
-	for k, v in pairs(DEFAULTS) do S[k] = v end
-	syncUI(keyList(DEFAULTS))
-	fullApply()
-	setStatus("Everything reset to default.")
-end
-
 tSet:Section("Interface")
+tSet:Select("Theme", THEME_ORDER, "theme", setTheme)
+tSet:Slider("UI Scale", "ui_scale", 0.6, 1.4, 0.05, f2, function(v)
+	uiScaleObj.Scale = baseScale * v
+end)
 tSet:Select("Toggle UI Key", { "RightShift", "RightControl", "Insert", "Home", "K" }, "ui_key", function(opt)
 	S.ui_key = opt
 	syncUI({ "ui_key" })
 	setStatus("UI key set to " .. opt)
 end)
 
-tSet:Section("Performance")
-if HAS.setfpscap then
-	tSet:Toggle("Custom FPS Cap (off = 60)", "fpscap_on", applyFps)
-	tSet:Slider("FPS Cap", "fpscap", 30, 360, 10, nil, applyFps)
-else
-	tSet:Label("FPS cap needs setfpscap, which your executor doesn't expose.")
+tSet:Section("Configs")
+tSet:Select("Config Slot", { "1", "2", "3" }, "cfg_slot")
+tSet:ButtonRow({
+	{ text = "Save to Slot", cb = saveConfig },
+	{ text = "Load from Slot", cb = function() loadConfig(false) end },
+})
+tSet:Toggle("Auto-load this slot when the script runs", "autoload", function(on)
+	if not HAS.files then setStatus("Your executor has no file functions.") return end
+	pcall(function() writefile(AUTOFILE, on and S.cfg_slot or "") end)
+	setStatus(on and ("Slot " .. S.cfg_slot .. " will auto-load (save it first).") or "Auto-load off.")
+end)
+if HAS.clipboard then
+	tSet:Button("Copy Config JSON to Clipboard", function()
+		pcall(setclipboard, HttpService:JSONEncode(S))
+		setStatus("Config copied to clipboard.")
+	end, C.off)
 end
 
-tSet:Section("Config")
-tSet:Button("Save Config", saveConfig)
-tSet:Button("Load Config", loadConfig)
-tSet:Button("Reset Everything", resetAll, C.off)
-
 tSet:Section("Danger Zone")
-tSet:Button("Destroy GUI & Restore Game", function() if env.XG_GFX then env.XG_GFX.Destroy() end end, C.danger)
+tSet:Button("Reset Everything", resetAll, C.off)
+tSet:Button("Destroy GUI & Restore Game", function()
+	if env.XG_GFX then env.XG_GFX.Destroy() end
+end, C.danger)
 
 tSet:Section("About")
-tSet:Label("Fullbright overrides shader brightness / time. Texture packs override Smooth Plastic. If a game keeps resetting its lighting, the script re-applies your settings a few times per second automatically.")
+tSet:Label("XG Graphics Suite Ultra. Everything is client-side and reversible. If a game keeps resetting its lighting, your settings are re-applied automatically a few times per second.")
 
-selectTab("Low Graphics")
+selectTab("Dashboard")
 
 ------------------------------------------------------------------------
--- WINDOW BUTTONS, KEYBIND, FPS
+-- WINDOW BUTTONS, KEYBIND, MONITOR
 ------------------------------------------------------------------------
 local minimized = false
 btnMin.MouseButton1Click:Connect(function()
 	minimized = not minimized
 	body.Visible = not minimized
 	footer.Visible = not minimized
-	main.Size = minimized and UDim2.fromOffset(WIN_W, 34) or UDim2.fromOffset(WIN_W, WIN_H)
+	accentLine.Visible = not minimized
+	main.Size = minimized and UDim2.fromOffset(WIN_W, 38) or UDim2.fromOffset(WIN_W, WIN_H)
 end)
 
 local function Destroy()
 	if Dead then return end
 	Dead = true
 	for _, c in ipairs(Conns) do pcall(function() c:Disconnect() end) end
+	pcall(function() RunService:UnbindFromRenderStep("XG_Render") end)
 
 	-- give everything back to the game
 	for inst, props in pairs(Orig) do
@@ -1521,22 +2658,24 @@ local function Destroy()
 	for inst, parent in pairs(Removed) do
 		pcall(function() inst.Parent = parent end)
 	end
-	for _, list in pairs(CustomTex) do
-		for _, t in pairs(list) do pcall(function() t:Destroy() end) end
-	end
-	for _, e in pairs(Effects) do pcall(function() e:Destroy() end) end
+	pcall(Core.restoreCustomTex)
+	pcall(Core.destroyScanner)
+	pcall(Core.destroyEffects)
+	pcall(Core.destroyOverlay)
+	pcall(Core.destroyParticles)
 
 	pcall(function() RunService:Set3dRenderingEnabled(true) end)
-	if QualityOrig ~= nil then
-		pcall(function() settings().Rendering.QualityLevel = QualityOrig end)
+	if Saved.quality ~= nil then pcall(function() settings().Rendering.QualityLevel = Saved.quality end) end
+	if Saved.mesh ~= nil then pcall(function() settings().Rendering.MeshPartDetailLevel = Saved.mesh end) end
+	if Saved.hd ~= nil then pcall(function() MaterialService.Use2022Materials = Saved.hd end) end
+	if Flags.core then pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true) end) end
+	if Flags.fov and Saved.fov and Workspace.CurrentCamera then
+		pcall(function() Workspace.CurrentCamera.FieldOfView = Saved.fov end)
 	end
 	if HAS.sethidden then
-		if TechOrig ~= nil then pcall(sethiddenproperty, Lighting, "Technology", TechOrig) end
+		if Saved.tech ~= nil then pcall(sethiddenproperty, Lighting, "Technology", Saved.tech) end
 		local t = Workspace:FindFirstChildOfClass("Terrain")
-		if t and Flags.deco then pcall(sethiddenproperty, t, "Decoration", DecoOrig == nil and true or DecoOrig) end
-	end
-	if HdOrig ~= nil then
-		pcall(function() MaterialService.Use2022Materials = HdOrig end)
+		if t and Flags.deco then pcall(sethiddenproperty, t, "Decoration", Saved.deco == nil and true or Saved.deco) end
 	end
 
 	pcall(function() gui:Destroy() end)
@@ -1551,45 +2690,98 @@ connect(UserInputService.InputBegan, function(input, processed)
 	end
 end)
 
+-- performance monitor
 do
-	local frames, t0 = 0, os.clock()
-	connect(RunService.RenderStepped, function()
+	local dts, di = {}, 0
+	local frames, acc2 = 0, 0
+	local history = {}
+	for i = 1, 40 do history[i] = 0 end
+
+	connect(RunService.RenderStepped, function(dt)
+		di = di % 120 + 1
+		dts[di] = dt
 		frames = frames + 1
-		local now = os.clock()
-		if now - t0 >= 0.5 then
-			fpsLabel.Text = tostring(math.floor(frames / (now - t0) + 0.5)) .. " FPS"
-			frames, t0 = 0, now
+		acc2 = acc2 + dt
+		if acc2 < 0.25 then return end
+
+		local fps = frames / acc2
+		frames, acc2 = 0, 0
+
+		local n, sum = #dts, 0
+		for i = 1, n do sum = sum + dts[i] end
+		local avgFps = n / math.max(sum, 0.0001)
+		local sorted = {}
+		for i = 1, n do sorted[i] = dts[i] end
+		table.sort(sorted)
+		local low = 1 / math.max(sorted[math.max(1, math.ceil(n * 0.99))], 0.0001)
+
+		fpsLabel.Text = tostring(math.floor(fps + 0.5)) .. " FPS"
+		statLabels.fps.Text = tostring(math.floor(fps + 0.5))
+		statLabels.avg.Text = tostring(math.floor(avgFps + 0.5))
+		statLabels.low.Text = tostring(math.floor(low + 0.5))
+		statLabels.ms.Text = string.format("%.1f ms", 1000 / math.max(fps, 1))
+
+		local okM, mem = pcall(function() return StatsService:GetTotalMemoryUsageMb() end)
+		statLabels.mem.Text = okM and (tostring(math.floor(mem)) .. " MB") or "n/a"
+		local okP, ping = pcall(function() return StatsService.Network.ServerStatsItem["Data Ping"]:GetValue() end)
+		statLabels.ping.Text = okP and (tostring(math.floor(ping)) .. " ms") or "n/a"
+
+		table.remove(history, 1)
+		history[#history + 1] = fps
+		if pages.Dashboard.Frame.Visible then
+			updateGraph(history, math.max(avgFps, 30))
 		end
 	end)
 end
 
 ------------------------------------------------------------------------
--- BACKGROUND LOOPS
+-- BACKGROUND LOOPS + INIT
 ------------------------------------------------------------------------
-connect(Workspace.DescendantAdded, enqueue)
-connect(Lighting.DescendantAdded, enqueue)
+Core.syncClock = function()
+	local c = Controls.clock
+	if c then c.Set(S.clock) end
+end
+
+connect(Workspace.DescendantAdded, Core.enqueue)
+connect(Lighting.DescendantAdded, Core.enqueue)
 
 do
-	local acc = 0
+	local acc3 = 0
 	connect(RunService.Heartbeat, function(dt)
-		local budget = 150
-		while qHead <= qTail and budget > 0 do
-			local inst = Queue[qHead]
-			Queue[qHead] = nil
-			qHead = qHead + 1
-			if inst and inst.Parent then pcall(processInstance, inst) end
-			budget = budget - 1
-		end
-		if qHead > qTail then qHead, qTail = 1, 0 end
-
-		acc = acc + dt
-		if acc >= 0.4 then
-			acc = 0
-			applyGlobal() -- re-asserts lighting if the game keeps changing it
+		Core.drainQueue(150)
+		acc3 = acc3 + dt
+		if acc3 >= 0.4 then
+			acc3 = 0
+			Core.applyGlobal() -- re-asserts lighting if the game keeps changing it
+			if S.cycle_on then Core.syncClock() end
 		end
 	end)
 end
+
+pcall(function() RunService:UnbindFromRenderStep("XG_Render") end)
+RunService:BindToRenderStep("XG_Render", Enum.RenderPriority.Camera.Value + 5, function(dt)
+	pcall(Core.cycleStep, dt)
+	pcall(Core.cameraStep, dt)
+	pcall(Core.reflFrame, dt)
+end)
+
+Core.scanLoop()
 
 env.XG_GFX = { Destroy = Destroy, Settings = S }
-buildPlan()
+
+-- optional auto-load of a saved config slot
+if HAS.files then
+	local ok, slot = pcall(function()
+		if isfile(AUTOFILE) then return readfile(AUTOFILE) end
+		return ""
+	end)
+	if ok and type(slot) == "string" and slot ~= "" then
+		S.cfg_slot = slot
+		syncUI({ "cfg_slot" })
+		loadConfig(true)
+		S.autoload = true
+		syncUI({ "autoload" })
+	end
+end
+
 setStatus("Loaded. " .. S.ui_key .. " = show / hide")
